@@ -2,7 +2,7 @@ const net = require('net')
 const { putVar, getVar } = require('@gd-com/utils')
 const StreamTcp = require('./StreamTcp')
 
-app.listen(process.env.PORT || 8000);
+var port = process.env.PORT || 8910
 
 let server = net.createServer((socket) => {
   const tcpSplit = new StreamTcp()
@@ -30,6 +30,6 @@ server.on('error', (err) => {
   throw err
 })
 
-server.listen(9090, '127.0.0.1', () => {
+server.listen(port, '127.0.0.1', () => {
   console.log(`Server launched TCP 127.0.0.1:${9090}`)
 })

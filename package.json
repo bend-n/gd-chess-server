@@ -11,5 +11,8 @@
   "license": "MIT",
   "dependencies": {
     "@gd-com/utils": "^4.1.0"
+  },
+  "engines": {
+    "node": "16.15"
   }
 }
