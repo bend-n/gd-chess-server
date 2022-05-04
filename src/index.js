@@ -2,6 +2,8 @@ const net = require('net')
 const { putVar, getVar } = require('@gd-com/utils')
 const StreamTcp = require('./StreamTcp')
 
+app.listen(process.env.PORT || 8000);
+
 let server = net.createServer((socket) => {
   const tcpSplit = new StreamTcp()
   socket.pipe(tcpSplit).on('data', (data) => {
@@ -20,7 +22,7 @@ let server = net.createServer((socket) => {
     console.log('send :', toSend)
     socket.write(toSend)
   })
-  
+
   socket.on('error', () => console.log('Bye :('))
 })
 
