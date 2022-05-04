@@ -30,6 +30,6 @@ server.on('error', (err) => {
   throw err
 })
 
-server.listen(port, '127.0.0.1', () => {
-  console.log(`Server launched TCP 127.0.0.1:${9090}`)
+server.listen(port, '0.0.0.0', () => {
+  console.log(`Server launched TCP 0.0.0.0:${port}`)
 })
