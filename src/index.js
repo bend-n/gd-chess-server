@@ -30,10 +30,10 @@ wss.on("connection", (ws) => {
     let data = recieve.string;
     console.log(`packet ${data} recieved with header ${recieve.header}`);
     if (recieve.header) {
-      console.log(recieve.header);
       switch (recieve.header) {
         case HEADERS.move:
           console.log("move");
+          break;
         case HEADERS.joinrequest:
           console.log("joinrequest");
           if (games[data] !== undefined && games[data].length < 2) {
@@ -42,6 +42,7 @@ wss.on("connection", (ws) => {
           } else {
             send_packet("err: game does not exist", HEADERS.joinrequest, ws);
           }
+          break;
         case HEADERS.hostrequest:
           console.log("hostrequest");
           if (games[data] === undefined) {
@@ -51,11 +52,14 @@ wss.on("connection", (ws) => {
           } else {
             send_packet("err: game already exists", HEADERS.hostrequest, ws);
           }
+          break;
         case HEADERS.stopgame:
           console.log("stopgame " + data);
           delete games[data];
+          break;
         default:
-          console.log("unknown");
+          console.log(`header ${recieve.header} unknown`);
+          break;
       }
     }
   });
