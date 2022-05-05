@@ -25,7 +25,8 @@ wss.on("connection", (ws) => {
 
   // on message recieved
   ws.on("message", (message) => {
-    let recieve = gdCom.getVar(Buffer.from(message));
+    let recieve = gdCom.getVar(Buffer.from(message)).value;
+
     let data = recieve.string;
     console.log(`packet ${data} recieved with header ${recieve.header}`);
     if (recieve.header) {
