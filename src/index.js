@@ -9,6 +9,7 @@ const HEADERS = {
   move: "M",
   joinrequest: "J",
   hostrequest: "H",
+  stopgame: "K",
 };
 
 let games = {};
@@ -26,6 +27,7 @@ wss.on("connection", (ws) => {
   ws.on("message", (message) => {
     let recieve = gdCom.getVar(Buffer.from(message));
     let data = recieve.string;
+    console.log(`packet ${data} recieved with header ${recieve.header}`);
     if (recieve.header) {
       console.log(recieve.header);
       switch (recieve.header) {
@@ -33,7 +35,7 @@ wss.on("connection", (ws) => {
           console.log("move");
         case HEADERS.joinrequest:
           console.log("joinrequest");
-          if (games[data] != undefined && games[data].length < 2) {
+          if (games[data] !== undefined && games[data].length < 2) {
             send_packet("Y", HEADERS.joinrequest, ws);
             games[data].push(ws);
           } else {
@@ -41,12 +43,16 @@ wss.on("connection", (ws) => {
           }
         case HEADERS.hostrequest:
           console.log("hostrequest");
-          if (games.indexOf(data) != -1) {
+          if (games[data] === undefined) {
             games[data] = [ws];
             send_packet("Y", HEADERS.hostrequest, ws);
+            console.log(`game ${data} created`);
           } else {
             send_packet("err: game already exists", HEADERS.hostrequest, ws);
           }
+        case HEADERS.stopgame:
+          console.log("stopgame " + data);
+          delete games[data];
         default:
           console.log("unknown");
       }
