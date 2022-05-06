@@ -15,7 +15,7 @@ const HEADERS = {
 let games = {};
 
 function send_packet(string, header, client) {
-  const packet = gdCom.putVar({ string: string, header: header });
+  const packet = gdCom.putVar({ data: string, header: header });
   client.send(packet);
 }
 
@@ -33,7 +33,7 @@ wss.on("connection", (ws) => {
       switch (header) {
         case HEADERS.move:
           if (games[data.gamecode] !== undefined) {
-            console.log("move");
+            console.log("move: " + data.move);
             games[data.gamecode].forEach((client) => {
               send_packet(data, HEADERS.move, client);
             });
