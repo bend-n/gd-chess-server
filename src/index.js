@@ -26,19 +26,38 @@ wss.on("connection", (ws) => {
   // on message recieved
   ws.on("message", (message) => {
     let recieve = gdCom.getVar(Buffer.from(message)).value;
-
-    let data = recieve.string;
-    console.log(`packet ${data} recieved with header ${recieve.header}`);
-    if (recieve.header) {
-      switch (recieve.header) {
+    let data = recieve.data;
+    let header = recieve.header;
+    console.log(`packet ${data} recieved with header ${header}`);
+    if (header) {
+      switch (header) {
         case HEADERS.move:
-          console.log("move");
+          if (games[data.gamecode] !== undefined) {
+            console.log("move");
+            games[data.gamecode].forEach((client) => {
+              send_packet(data, HEADERS.move, client);
+            });
+            break;
+          }
+          console.log("game not found!");
           break;
         case HEADERS.joinrequest:
           console.log("joinrequest");
-          if (games[data] !== undefined && games[data].length < 2) {
-            send_packet("Y", HEADERS.joinrequest, ws);
-            games[data].push(ws);
+          if (games[data] !== undefined) {
+            if (games[data].length < 2) {
+              if (games[data][0] !== ws) {
+                send_packet("Y", HEADERS.joinrequest, ws);
+                games[data].push(ws);
+              } else {
+                send_packet(
+                  "err: you have already joined",
+                  HEADERS.joinrequest,
+                  ws
+                );
+              }
+            } else {
+              send_packet("err: game full", HEADERS.joinrequest, ws);
+            }
           } else {
             send_packet("err: game does not exist", HEADERS.joinrequest, ws);
           }
@@ -55,10 +74,13 @@ wss.on("connection", (ws) => {
           break;
         case HEADERS.stopgame:
           console.log("stopgame " + data);
+          games[data].forEach((client) => {
+            send_packet("", HEADERS.stopgame, client);
+          });
           delete games[data];
           break;
         default:
-          console.log(`header ${recieve.header} unknown`);
+          console.log(`header ${header} unknown`);
           break;
       }
     }
