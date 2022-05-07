@@ -1,3 +1,4 @@
+/*jshint esversion: 6 */
 const WebSocket = require("ws");
 const gdCom = require("@gd-com/utils");
 
@@ -36,10 +37,10 @@ wss.on("connection", (ws) => {
           handle_move(data);
           break;
         case HEADERS.joinrequest:
-          handle_joinrequest(data);
+          handle_joinrequest(data, ws);
           break;
         case HEADERS.hostrequest:
-          handle_hostrequest(data);
+          handle_hostrequest(data, ws);
           break;
         case HEADERS.stopgame:
           handle_stop(data);
@@ -65,7 +66,7 @@ function handle_move(data) {
   console.log("game not found!");
 }
 
-function handle_joinrequest(data) {
+function handle_joinrequest(data, ws) {
   console.log("joinrequest");
   if (games[data] !== undefined) {
     if (games[data].length < 2) {
@@ -83,7 +84,7 @@ function handle_joinrequest(data) {
   }
 }
 
-function handle_hostrequest(data) {
+function handle_hostrequest(data, ws) {
   console.log("hostrequest");
   if (games[data] === undefined) {
     games[data] = [ws];
