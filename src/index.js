@@ -10,6 +10,7 @@ const HEADERS = {
   joinrequest: "J",
   hostrequest: "H",
   stopgame: "K",
+  ping: "P",
 };
 
 let games = {};
@@ -79,6 +80,8 @@ wss.on("connection", (ws) => {
           });
           delete games[data];
           break;
+        case HEADERS.ping:
+          send_packet("", HEADERS.ping, ws);
         default:
           console.log(`header ${header} unknown`);
           break;
