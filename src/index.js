@@ -97,8 +97,10 @@ function handle_hostrequest(data, ws) {
 
 function handle_stop(data) {
   console.log("stopgame " + data);
-  games[data].forEach((client) => {
-    send_packet("", HEADERS.stopgame, client);
-  });
-  delete games[data];
+  if (games[data] !== undefined) {
+    games[data].forEach((client) => {
+      send_packet("", HEADERS.stopgame, client);
+    });
+    delete games[data];
+  }
 }
