@@ -12,6 +12,7 @@ const HEADERS = {
   hostrequest: "H",
   stopgame: "K",
   ping: "P",
+  startgame: "S",
 };
 
 let games = {};
@@ -47,6 +48,11 @@ wss.on("connection", (ws) => {
           break;
         case HEADERS.ping:
           send_packet("", HEADERS.ping, ws);
+          break;
+        case HEADERS.startgame:
+          wss.clients.forEach((client) => {
+            send_packet("", HEADERS.startgame, client);
+          });
           break;
         default:
           console.log(`header ${header} unknown`);
