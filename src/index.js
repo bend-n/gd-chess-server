@@ -13,6 +13,8 @@ const HEADERS = {
   stopgame: "K",
   ping: "P",
   startgame: "S",
+  listgames: "L",
+  request: "R",
 };
 
 let games = {};
@@ -31,11 +33,10 @@ wss.on("connection", (ws) => {
     let recieve = gdCom.getVar(Buffer.from(message)).value;
     let data = recieve.data;
     let header = recieve.header;
-    console.log(`packet ${data} recieved with header ${header}`);
     if (header) {
       switch (header) {
         case HEADERS.move:
-          handle_move(data);
+          handle_move(data, ws);
           break;
         case HEADERS.joinrequest:
           handle_joinrequest(data, ws);
@@ -44,15 +45,18 @@ wss.on("connection", (ws) => {
           handle_hostrequest(data, ws);
           break;
         case HEADERS.stopgame:
-          handle_stop(data);
+          handle_stop(data, ws);
           break;
         case HEADERS.ping:
           send_packet("", HEADERS.ping, ws);
           break;
         case HEADERS.startgame:
-          wss.clients.forEach((client) => {
+          games[data].forEach((client) => {
             send_packet("", HEADERS.startgame, client);
           });
+          break;
+        case HEADERS.request:
+          handle_request(data, ws);
           break;
         default:
           console.log(`header ${header} unknown`);
@@ -62,18 +66,18 @@ wss.on("connection", (ws) => {
   });
 });
 
-function handle_move(data) {
-  if (games[data.gamecode] !== undefined) {
-    console.log("move: " + data.move);
+function handle_move(data, ws) {
+  if (games[data.gamecode].includes(ws)) {
     games[data.gamecode].forEach((client) => {
       send_packet(data, HEADERS.move, client);
     });
+  } else {
+    console.log("game not found!");
   }
-  console.log("game not found!");
 }
 
 function handle_joinrequest(data, ws) {
-  console.log("joinrequest");
+  console.log("joinrequest", data);
   if (games[data] !== undefined) {
     if (games[data].length < 2) {
       if (games[data][0] !== ws) {
@@ -91,7 +95,7 @@ function handle_joinrequest(data, ws) {
 }
 
 function handle_hostrequest(data, ws) {
-  console.log("hostrequest");
+  console.log("hostrequest: ", data);
   if (games[data] === undefined) {
     games[data] = [ws];
     send_packet("Y", HEADERS.hostrequest, ws);
@@ -101,12 +105,26 @@ function handle_hostrequest(data, ws) {
   }
 }
 
-function handle_stop(data) {
+function handle_stop(data, ws) {
   console.log("stopgame " + data);
-  if (games[data] !== undefined) {
+  if (games[data].includes(ws)) {
     games[data].forEach((client) => {
       send_packet("", HEADERS.stopgame, client);
     });
     delete games[data];
+  } else {
+    console.log("wtf dude");
+  }
+}
+
+function handle_request(data, ws) {
+  let i = games[data.gamecode].indexOf(ws);
+  if (i !== -1) {
+    let sendto = games[data.gamecode][i ? 0 : 1];
+    if (data.answering) {
+      send_packet(data.answer, data.type, sendto);
+    } else {
+      send_packet(data.question, data.type, sendto);
+    }
   }
 }
