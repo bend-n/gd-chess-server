@@ -123,7 +123,9 @@ function handle_request(data, ws) {
     let sendto = games[data.gamecode][i ? 0 : 1];
     if (data.answering) {
       send_packet(data.answer, data.type, sendto);
+      console.log(`sending request result ${data.answer}`);
     } else {
+      console.log(`sending request ${data.question}`);
       send_packet(data.question, data.type, sendto);
     }
   }
