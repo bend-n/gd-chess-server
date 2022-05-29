@@ -1,10 +1,10 @@
-/*jshint esversion: 6 */
 const WebSocket = require("ws");
-const gdCom = require("@gd-com/utils");
 
 const PORT = process.env.PORT || 3000;
+const wss = new WebSocket.Server({ port: PORT }); // init server asap
 
-const wss = new WebSocket.Server({ port: PORT });
+const { putVar, getVar } = require("@gd-com/utils");
+const { command } = require("./pg");
 
 const HEADERS = {
   relay: "R",
@@ -13,6 +13,8 @@ const HEADERS = {
   stopgame: "K",
   ping: "P",
   signal: "S",
+  create_user: "C",
+  signin: ">",
 };
 
 let games = {};
@@ -22,7 +24,7 @@ function str_obj(obj) {
 }
 
 function send_packet(data, header, client) {
-  const packet = gdCom.putVar({ data: data, header: header });
+  const packet = putVar({ data: data, header: header });
   client.send(packet);
 }
 
@@ -37,10 +39,9 @@ wss.on("connection", (ws, req) => {
   console.log(`client connected (${req.socket.remoteAddress})`);
   // on message recieved
   ws.on("message", (message) => {
-    let recieve = gdCom.getVar(Buffer.from(message)).value;
+    let recieve = getVar(Buffer.from(message)).value;
     let data = recieve.data;
     let header = recieve.header;
-    console.log(`recieved ${str_obj(data)}`);
     if (header) {
       switch (header) {
         case HEADERS.relay:
@@ -61,6 +62,12 @@ wss.on("connection", (ws, req) => {
         case HEADERS.signal:
           signal_other(data, ws);
           break;
+        case HEADERS.create_user:
+          signup(data, ws);
+          break;
+        case HEADERS.signin:
+          signin(data, ws);
+          break;
         default:
           console.log(`header ${header} unknown`);
           break;
@@ -68,6 +75,50 @@ wss.on("connection", (ws, req) => {
     }
   });
 });
+
+async function get_propertys(name) {
+  const c = `SELECT * FROM users WHERE name = '${name}';`;
+  const result = await command(c);
+  return result.rows[0] ? result.rows[0] : undefined;
+}
+
+async function signin(data, ws) {
+  const c = `SELECT * FROM users WHERE name = '${data.name}' AND password = '${data.password}';`;
+  const res = await command(c);
+  if (res.rows[0]) {
+    const packet = { id: res.rows[0].id, country: res.rows[0].country };
+    send_packet(packet, HEADERS.signin, ws);
+  } else {
+    send_packet("NO", HEADERS.signin, ws);
+  }
+}
+
+async function signup(data, ws) {
+  console.log("attempting to create user");
+  const res = await get_propertys(data.name);
+  if (res) {
+    send_packet("err: user already exists", HEADERS.create_user, ws);
+    console.error("user already exists");
+    return; // if existing, send err
+  }
+
+  async function init_user() {
+    const c = `INSERT INTO users (name, country, password) VALUES ('${data.name}', '${data.country}',  '${data.password}') RETURNING id;`;
+    const res = await command(c);
+    console.log(`created user sucessully! (${c})`);
+    return res.rows[0].id; // return the uuid
+  }
+  let id;
+  try {
+    id = await init_user();
+  } catch (e) {
+    const packet = `err: could not create user(${e.stack})`;
+    send_packet(packet, HEADERS.create_user, ws);
+    console.error(e.stack);
+    return;
+  }
+  send_packet(id, HEADERS.create_user, ws);
+}
 
 function handle_joinrequest(data, ws) {
   console.log("joinrequest", data);
