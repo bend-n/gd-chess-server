@@ -17,6 +17,7 @@ const HEADERS = {
   signin: ">",
 };
 
+// { gamecode: {clients: [], ids: []}}
 let games = {
   cleanup: function () {
     const keys = Object.keys(this);
@@ -153,37 +154,37 @@ async function signup(data, ws) {
 }
 
 function handle_joinrequest(data, ws) {
-  console.log("joinrequest", data);
-  if (games[data] !== undefined) {
-    if (games[data].length < 2) {
-      if (games[data][0] !== ws) {
-        send_packet("Y", HEADERS.joinrequest, ws);
-        games[data].push(ws);
-      } else {
-        send_packet("err: you have already joined", HEADERS.joinrequest, ws);
-      }
-    } else {
-      send_packet("err: game full", HEADERS.joinrequest, ws);
-    }
-  } else {
-    send_packet("err: game does not exist", HEADERS.joinrequest, ws);
+  function done(id = true) {
+    send_packet("Y", HEADERS.joinrequest, ws);
+    games[data.gamecode].clients.push(ws);
+    if (id) games[data.gamecode].ids.push(data.id);
   }
+  console.log("joinrequest", data.gamecode);
+  if (games[data.gamecode] !== undefined) {
+    if (games[data.gamecode].ids.length < 2) done();
+    else {
+      if (games[data.gamecode].ids[1] === data.id)
+        done(false); // rejoin support :D
+      else send_packet("err: game full", HEADERS.joinrequest, ws);
+    }
+  } else send_packet("err: game does not exist", HEADERS.joinrequest, ws);
 }
 
 function handle_hostrequest(data, ws) {
-  console.log("hostrequest: ", data);
-  if (games[data] === undefined) {
-    games[data] = [ws];
+  console.log("hostrequest: ", data.gamecode);
+  if (games[data.gamecode] === undefined) {
+    games[data.gamecode] = { clients: [ws], ids: [data.id] };
     send_packet("Y", HEADERS.hostrequest, ws);
-    console.log(`game ${data} created`);
+    console.log(`game ${data.gamecode} created`);
   } else {
-    send_packet("err: game already exists", HEADERS.hostrequest, ws);
+    const err_packet = `err: "${data.gamecode}" already exists`;
+    send_packet(err_packet, HEADERS.hostrequest, ws);
   }
 }
 
 function handle_stop(data, ws) {
   if (data.gamecode in games) {
-    if (games[data.gamecode].includes(ws)) {
+    if (games[data.gamecode].clients.includes(ws)) {
       console.log("stopgame " + data.gamecode);
       send_group_packet(data.reason, HEADERS.stopgame, games[data.gamecode]);
       delete games[data.gamecode];
@@ -194,7 +195,7 @@ function handle_stop(data, ws) {
 // relays to both clients
 function dual_relay(data, ws) {
   if (data.gamecode in games) {
-    if (games[data.gamecode].includes(ws)) {
+    if (games[data.gamecode].clients.includes(ws)) {
       send_group_packet(data, HEADERS.relay, games[data.gamecode]);
       console.log(`relaying ${str_obj(data)} to both clients`);
     }
@@ -204,7 +205,7 @@ function dual_relay(data, ws) {
 // relays to the other client
 function signal_other(data, ws) {
   if (data.gamecode in games) {
-    let i = games[data.gamecode].indexOf(ws);
+    let i = games[data.gamecode].clients.indexOf(ws);
     if (i !== -1) {
       let sendto = games[data.gamecode][i ? 0 : 1];
       send_packet(data, HEADERS.signal, sendto);
