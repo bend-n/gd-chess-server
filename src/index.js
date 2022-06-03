@@ -11,13 +11,13 @@ const HEADERS = {
   joinrequest: "J",
   hostrequest: "H",
   stopgame: "K",
-  ping: "P",
   signal: "S",
   create_user: "C",
   signin: ">",
+  loadpgn: "L",
 };
 
-// { gamecode: {clients: [], ids: []}}
+// { gamecode: {clients: [], ids: [], turn = true, pgn: ""} }
 let games = {};
 
 function str_obj(obj) {
@@ -31,46 +31,65 @@ function send_packet(data, header, client) {
 
 function send_group_packet(data, header, clients) {
   clients.forEach((client) => {
-    send_packet(data, header, client);
+    if (client) send_packet(data, header, client);
   });
 }
 
-const interval = setInterval(function ping() {
+const interval = setInterval(() => {
   function cleanup_games() {
     const keys = Object.keys(games);
     keys.forEach((key) => {
-      {
-        let value = games[key].clients;
-        value.forEach((client) => {
+      let clients = games[key].clients;
+      clients.forEach((client) => {
+        if (client) {
           if (client.is_alive === false) {
-            value.splice(value.indexOf(client), 1);
-            console.log("removed dead client from " + key);
-          } else client.is_alive = false; // becomes true on next ping
-          if (games[key].clients.length === 0) {
-            delete games[key];
-            console.log(`dead game: ${key} deleted`);
+            client.terminate();
+            wss.clients.delete(client);
+            clients[clients.indexOf(client)] = undefined;
+            console.log("removed dead client from", key);
+          } else {
+            client.is_alive = false; // becomes true on next ping
+            client.ping();
           }
-        });
-      }
+        }
+        if (clients[0] == undefined && clients[1] == undefined) {
+          delete games[key];
+          console.log(`dead game: ${key} deleted`);
+        }
+      });
     });
   }
   cleanup_games();
-}, 5000);
+}, 10000);
+
+const random_ping = setInterval(() => {
+  wss.clients.forEach((client) => {
+    if (client) client.ping();
+  });
+}, 20000);
+
+function heartbeat() {
+  this.is_alive = true;
+}
 
 wss.on("close", function close() {
   clearInterval(interval);
+  clearInterval(random_ping);
 });
 
 console.log(`Server started on port ${PORT}`);
 wss.on("connection", (ws, req) => {
   console.log(`client connected (${req.socket.remoteAddress})`);
   ws.is_alive = true;
-
+  ws.on("pong", heartbeat);
   // on message recieved
   ws.on("message", (message) => {
     let recieve = getVar(Buffer.from(message)).value;
     let data = recieve.data;
     let header = recieve.header;
+    console.log(
+      `recieved ${str_obj(recieve)} from ${req.socket.remoteAddress}`
+    );
     if (header) {
       switch (header) {
         case HEADERS.relay:
@@ -84,9 +103,6 @@ wss.on("connection", (ws, req) => {
           break;
         case HEADERS.stopgame:
           handle_stop(data, ws);
-          break;
-        case HEADERS.ping:
-          ws.is_alive = true;
           break;
         case HEADERS.signal:
           signal_other(data, ws);
@@ -150,29 +166,47 @@ async function signup(data, ws) {
 }
 
 function handle_joinrequest(data, ws) {
+  const game = games[data.gamecode];
   function done(id = true) {
+    console.log("joinrequest:", data.gamecode);
+    game.clients[game.clients.indexOf(undefined)] = ws;
+    if (id) game.ids.push(data.id);
+    if (game.pgn) send_packet(game.pgn, HEADERS.loadpgn, ws);
     send_packet("Y", HEADERS.joinrequest, ws);
-    games[data.gamecode].clients.push(ws);
-    if (id) games[data.gamecode].ids.push(data.id);
   }
-  if (data.gamecode !== undefined && data.id !== undefined) {
-    if (games[data.gamecode] !== undefined) {
-      if (games[data.gamecode].ids.length < 2) done();
-      else {
-        if (games[data.gamecode].ids[1] === data.id)
-          done(false); // rejoin support :D
-        else send_packet("err: game full", HEADERS.joinrequest, ws);
-      }
-    } else send_packet("err: game does not exist", HEADERS.joinrequest, ws);
-  } else
-    send_packet("err: gamecode or id not defined", HEADERS.joinrequest, ws);
+  if (data.gamecode !== undefined && data.id !== undefined)
+    if (game !== undefined)
+      if (game.ids.length < 2) done();
+      else if (
+        game.ids.includes(data.id) &&
+        game.clients.indexOf(undefined) !== -1
+      )
+        done(false);
+      else send_packet("err: game full", HEADERS.joinrequest, ws);
+    else send_packet("err: game does not exist", HEADERS.joinrequest, ws);
+  else send_packet("err: gamecode or id not defined", HEADERS.joinrequest, ws);
 }
 
 function handle_hostrequest(data, ws) {
   if (data.gamecode !== undefined && data.id !== undefined) {
-    console.log("hostrequest: ", data.gamecode);
     if (games[data.gamecode] === undefined) {
-      games[data.gamecode] = { clients: [ws], ids: [data.id] };
+      console.log("hostrequest:", data.gamecode);
+      games[data.gamecode] = {
+        clients: [ws, undefined],
+        ids: [data.id],
+        moves: [],
+        pgn: "",
+        fullmoves: 1,
+        turn: true,
+        add_turn(move) {
+          this.turn = !this.turn;
+          if (this.turn) {
+            this.moves.push(`${move}`);
+            this.fullmoves++;
+          } else this.moves.push(`${this.fullmoves}. ${move}`);
+          this.pgn = this.moves.join(" ");
+        },
+      };
       send_packet("Y", HEADERS.hostrequest, ws);
       console.log(`game ${data.gamecode} created`);
     } else {
@@ -201,10 +235,14 @@ function handle_stop(data, ws) {
 function dual_relay(data, ws) {
   if (data.gamecode in games) {
     if (games[data.gamecode].clients.includes(ws)) {
+      if (data.type == "M") {
+        // if its a move
+        games[data.gamecode].add_turn(data.move);
+      }
       send_group_packet(data, HEADERS.relay, games[data.gamecode].clients);
       console.log(`relaying ${str_obj(data)} to both clients`);
-    }
-  }
+    } else console.log(`requester is not in game ${data.gamecode}`);
+  } else console.log(`dual relay: game ${data.gamecode} does not exist`);
 }
 
 // relays to the other client
@@ -215,6 +253,6 @@ function signal_other(data, ws) {
       let sendto = games[data.gamecode].clients[i ? 0 : 1];
       send_packet(data, HEADERS.signal, sendto);
       console.log(`sending signal ${str_obj(data)}`);
-    }
+    } else console.log(`could not find client in game ${data.gamecode}`);
   }
 }
