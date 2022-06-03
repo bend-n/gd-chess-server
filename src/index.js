@@ -17,7 +17,24 @@ const HEADERS = {
   signin: ">",
 };
 
-let games = {};
+let games = {
+  cleanup: function () {
+    const keys = Object.keys(this);
+    keys.forEach((key) => {
+      if (this[key].length === 0) {
+        delete this[key];
+      } else {
+        let value = this[key];
+        value.forEach((client) => {
+          if (client.is_alive === false) {
+            value.splice(value.indexOf(client), 1);
+            console.log("removed dead client from " + key);
+          }
+        });
+      }
+    });
+  },
+};
 
 function str_obj(obj) {
   return JSON.stringify(obj, null, 0);
@@ -34,9 +51,24 @@ function send_group_packet(data, header, clients) {
   });
 }
 
+const interval = setInterval(function ping() {
+  wss.clients.forEach(function each(ws) {
+    if (ws.is_alive === false) return ws.terminate();
+    ws.is_alive = false;
+    ws.ping();
+  });
+  games.cleanup();
+}, 50000);
+
+wss.on("close", function close() {
+  clearInterval(interval);
+});
+
 console.log(`Server started on port ${PORT}`);
 wss.on("connection", (ws, req) => {
   console.log(`client connected (${req.socket.remoteAddress})`);
+  ws.is_alive = true;
+
   // on message recieved
   ws.on("message", (message) => {
     let recieve = getVar(Buffer.from(message)).value;
@@ -57,7 +89,7 @@ wss.on("connection", (ws, req) => {
           handle_stop(data, ws);
           break;
         case HEADERS.ping:
-          send_packet("", HEADERS.ping, ws);
+          ws.is_alive = true;
           break;
         case HEADERS.signal:
           signal_other(data, ws);
