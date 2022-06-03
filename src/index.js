@@ -18,24 +18,7 @@ const HEADERS = {
 };
 
 // { gamecode: {clients: [], ids: []}}
-let games = {
-  cleanup: function () {
-    const keys = Object.keys(this);
-    keys.forEach((key) => {
-      if (this[key].length === 0) {
-        delete this[key];
-      } else {
-        let value = this[key];
-        value.forEach((client) => {
-          if (client.is_alive === false) {
-            value.splice(value.indexOf(client), 1);
-            console.log("removed dead client from " + key);
-          }
-        });
-      }
-    });
-  },
-};
+let games = {};
 
 function str_obj(obj) {
   return JSON.stringify(obj, null, 0);
@@ -53,13 +36,26 @@ function send_group_packet(data, header, clients) {
 }
 
 const interval = setInterval(function ping() {
-  wss.clients.forEach(function each(ws) {
-    if (ws.is_alive === false) return ws.terminate();
-    ws.is_alive = false;
-    ws.ping();
-  });
-  games.cleanup();
-}, 50000);
+  function cleanup_games() {
+    const keys = Object.keys(games);
+    keys.forEach((key) => {
+      {
+        let value = games[key].clients;
+        value.forEach((client) => {
+          if (client.is_alive === false) {
+            value.splice(value.indexOf(client), 1);
+            console.log("removed dead client from " + key);
+          } else client.is_alive = false; // becomes true on next ping
+          if (games[key].clients.length === 0) {
+            delete games[key];
+            console.log(`dead game: ${key} deleted`);
+          }
+        });
+      }
+    });
+  }
+  cleanup_games();
+}, 5000);
 
 wss.on("close", function close() {
   clearInterval(interval);
@@ -191,7 +187,11 @@ function handle_stop(data, ws) {
   if (data.gamecode in games) {
     if (games[data.gamecode].clients.includes(ws)) {
       console.log("stopgame " + data.gamecode);
-      send_group_packet(data.reason, HEADERS.stopgame, games[data.gamecode]);
+      send_group_packet(
+        data.reason,
+        HEADERS.stopgame,
+        games[data.gamecode].clients
+      );
       delete games[data.gamecode];
     }
   }
@@ -201,7 +201,7 @@ function handle_stop(data, ws) {
 function dual_relay(data, ws) {
   if (data.gamecode in games) {
     if (games[data.gamecode].clients.includes(ws)) {
-      send_group_packet(data, HEADERS.relay, games[data.gamecode]);
+      send_group_packet(data, HEADERS.relay, games[data.gamecode].clients);
       console.log(`relaying ${str_obj(data)} to both clients`);
     }
   }
@@ -212,7 +212,7 @@ function signal_other(data, ws) {
   if (data.gamecode in games) {
     let i = games[data.gamecode].clients.indexOf(ws);
     if (i !== -1) {
-      let sendto = games[data.gamecode][i ? 0 : 1];
+      let sendto = games[data.gamecode].clients[i ? 0 : 1];
       send_packet(data, HEADERS.signal, sendto);
       console.log(`sending signal ${str_obj(data)}`);
     }
