@@ -128,14 +128,10 @@ async function get_propertys(name) {
 }
 
 async function signin(data, ws) {
-  const c = `SELECT * FROM users WHERE name = '${data.name}' AND password = '${data.password}';`;
+  const c = `SELECT id, country FROM users WHERE name = '${data.name}' AND password = '${data.password}';`;
   const res = await command(c);
-  if (res.rows[0]) {
-    const packet = { id: res.rows[0].id, country: res.rows[0].country };
-    send_packet(packet, HEADERS.signin, ws);
-  } else {
-    send_packet("NO", HEADERS.signin, ws);
-  }
+  if (res.rows[0]) send_packet(res.rows[0], HEADERS.signin, ws);
+  else send_packet("Incorrect credentials", HEADERS.signin, ws);
 }
 
 async function signup(data, ws) {
@@ -171,7 +167,9 @@ function handle_joinrequest(data, ws) {
     console.log("joinrequest:", data.gamecode);
     game.clients[game.clients.indexOf(undefined)] = ws;
     if (id) game.ids.push(data.id);
-    if (game.pgn) send_packet(game.pgn, HEADERS.loadpgn, ws);
+    if (!game.pgn) send_group_packet(game.pgn, HEADERS.loadpgn, game.clients);
+    else send_packet(game.pgn, HEADERS.loadpgn, ws); // only send it to the new guy
+    // if its empty send it to both(it acts as startgame signal)
     send_packet("Y", HEADERS.joinrequest, ws);
   }
   if (data.gamecode !== undefined && data.id !== undefined)
@@ -179,10 +177,15 @@ function handle_joinrequest(data, ws) {
       if (game.ids.length < 2) done();
       else if (
         game.ids.includes(data.id) &&
-        game.clients.indexOf(undefined) !== -1
+        game.clients.indexOf(undefined) !== -1 &&
+        data.id !== ""
       )
         done(false);
-      else send_packet("err: game full", HEADERS.joinrequest, ws);
+      else {
+        const packet =
+          "err: game full ( if rejoining, please try again in 10-20 seconds )";
+        send_packet(packet, HEADERS.joinrequest, ws);
+      }
     else send_packet("err: game does not exist", HEADERS.joinrequest, ws);
   else send_packet("err: gamecode or id not defined", HEADERS.joinrequest, ws);
 }
