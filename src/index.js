@@ -15,9 +15,10 @@ const HEADERS = {
   create_user: "C",
   signin: ">",
   loadpgn: "L",
+  info: "I",
 };
 
-// { gamecode: {clients: [], ids: [], turn = true, pgn: ""} }
+// { gamecode: {clients: [], ids: [], infos: {names: [], countrys:[]} turn = true, pgn: ""} }
 let games = {};
 
 function str_obj(obj) {
@@ -163,10 +164,16 @@ async function signup(data, ws) {
 
 function handle_joinrequest(data, ws) {
   const game = games[data.gamecode];
-  function done(id = true) {
+  function done(push = true) {
     console.log("joinrequest:", data.gamecode);
     game.clients[game.clients.indexOf(undefined)] = ws;
-    if (id) game.ids.push(data.id);
+    if (push) {
+      game.ids.push(data.id);
+      game.infos.names.push(data.name);
+      game.infos.countrys.push(data.country);
+    }
+    send_packet(game.infos.get(1), HEADERS.info, game.clients[0]);
+    send_packet(game.infos.get(0), HEADERS.info, game.clients[1]); // give each their data
     if (!game.pgn) send_group_packet(game.pgn, HEADERS.loadpgn, game.clients);
     else send_packet(game.pgn, HEADERS.loadpgn, ws); // only send it to the new guy
     // if its empty send it to both(it acts as startgame signal)
@@ -197,6 +204,16 @@ function handle_hostrequest(data, ws) {
       games[data.gamecode] = {
         clients: [ws, undefined],
         ids: [data.id],
+        infos: {
+          names: [data.name],
+          countrys: [data.country],
+          get: function (index) {
+            return {
+              name: this.names[index],
+              country: this.countrys[index],
+            };
+          },
+        },
         moves: [],
         pgn: "",
         fullmoves: 1,
