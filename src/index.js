@@ -166,7 +166,8 @@ function handle_joinrequest(data, ws) {
   const game = games[data.gamecode];
   function done(push = true) {
     console.log("joinrequest:", data.gamecode);
-    game.clients[game.clients.indexOf(undefined)] = ws;
+    const i = game.clients.indexOf(undefined);
+    game.clients[i] = ws;
     if (push) {
       game.ids.push(data.id);
       game.infos.names.push(data.name);
@@ -177,7 +178,7 @@ function handle_joinrequest(data, ws) {
     if (!game.pgn) send_group_packet(game.pgn, HEADERS.loadpgn, game.clients);
     else send_packet(game.pgn, HEADERS.loadpgn, ws); // only send it to the new guy
     // if its empty send it to both(it acts as startgame signal)
-    send_packet("Y", HEADERS.joinrequest, ws);
+    send_packet({ idx: i }, HEADERS.joinrequest, ws);
   }
   if (data.gamecode !== undefined && data.id !== undefined)
     if (game !== undefined)
@@ -227,7 +228,7 @@ function handle_hostrequest(data, ws) {
           this.pgn = this.moves.join(" ");
         },
       };
-      send_packet("Y", HEADERS.hostrequest, ws);
+      send_packet({ idx: 0 }, HEADERS.hostrequest, ws);
       console.log(`game ${data.gamecode} created`);
     } else {
       const err_packet = `err: "${data.gamecode}" already exists`;
