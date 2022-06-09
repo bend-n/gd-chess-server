@@ -16,6 +16,8 @@ const HEADERS = {
   signin: ">",
   loadpgn: "L",
   info: "I",
+  move: "M",
+  undo: "<",
 };
 
 // { gamecode: {clients: [], ids: [], infos: {names: [], countrys:[]} turn = true, pgn: ""} }
@@ -113,6 +115,12 @@ wss.on("connection", (ws, req) => {
           break;
         case HEADERS.signin:
           signin(data, ws);
+          break;
+        case HEADERS.undo:
+          handle_undo(data, ws);
+          break;
+        case HEADERS.move:
+          handle_move(data, ws);
           break;
         default:
           console.log(`header ${header} unknown`);
@@ -227,6 +235,13 @@ function handle_hostrequest(data, ws) {
           } else this.moves.push(`${this.fullmoves}. ${move}`);
           this.pgn = this.moves.join(" ");
         },
+        pop_move() {
+          this.moves.pop();
+          this.turn = !this.turn;
+          if (!this.turn) this.fullmoves--;
+          this.pgn = this.moves.join(" ");
+          console.log("POPPED");
+        },
       };
       send_packet({ idx: 0 }, HEADERS.hostrequest, ws);
       console.log(`game ${data.gamecode} created`);
@@ -239,7 +254,7 @@ function handle_hostrequest(data, ws) {
 }
 
 function handle_stop(data, ws) {
-  if (data.gamecode in games) {
+  if (games.hasOwnProperty(data.gamecode)) {
     if (games[data.gamecode].clients.includes(ws)) {
       console.log("stopgame " + data.gamecode);
       send_group_packet(
@@ -252,28 +267,40 @@ function handle_stop(data, ws) {
   }
 }
 
+function handle_move(data, ws) {
+  if (dual_relay(data, ws, HEADERS.move))
+    games[data.gamecode].add_turn(data.move);
+}
+
+function handle_undo(data, ws) {
+  if (signal_other(data, ws, HEADERS.undo) && data.accepted == true) {
+    console.log("calling popper");
+    games[data.gamecode].pop_move();
+  } else console.warn(data.accepted);
+}
+
 // relays to both clients
-function dual_relay(data, ws) {
-  if (data.gamecode in games) {
+function dual_relay(data, ws, header = HEADERS.relay) {
+  if (games.hasOwnProperty(data.gamecode)) {
     if (games[data.gamecode].clients.includes(ws)) {
-      if (data.type == "M") {
-        // if its a move
-        games[data.gamecode].add_turn(data.move);
-      }
-      send_group_packet(data, HEADERS.relay, games[data.gamecode].clients);
+      send_group_packet(data, header, games[data.gamecode].clients);
       console.log(`relaying ${str_obj(data)} to both clients`);
+      return true;
     } else console.log(`requester is not in game ${data.gamecode}`);
   } else console.log(`dual relay: game ${data.gamecode} does not exist`);
+  return false;
 }
 
 // relays to the other client
-function signal_other(data, ws) {
-  if (data.gamecode in games) {
+function signal_other(data, ws, header = HEADERS.signal) {
+  if (games.hasOwnProperty(data.gamecode)) {
     let i = games[data.gamecode].clients.indexOf(ws);
     if (i !== -1) {
       let sendto = games[data.gamecode].clients[i ? 0 : 1];
-      send_packet(data, HEADERS.signal, sendto);
+      send_packet(data, header, sendto);
       console.log(`sending signal ${str_obj(data)}`);
+      return true;
     } else console.log(`could not find client in game ${data.gamecode}`);
   }
+  return false;
 }
