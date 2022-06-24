@@ -5,6 +5,7 @@ const wss = new WebSocket.Server({ port: PORT }); // init server asap
 
 const { putVar, getVar } = require("@gd-com/utils");
 const { command } = require("./pg");
+const { self_ping } = require("./ping");
 
 const HEADERS = {
   relay: "R",
@@ -34,7 +35,7 @@ function send_group_packet(data, header, clients) {
   });
 }
 
-const interval = setInterval(() => {
+const garbage_collector = setInterval(() => {
   function cleanup_games() {
     const keys = Object.keys(games);
     keys.forEach((key) => {
@@ -50,7 +51,6 @@ const interval = setInterval(() => {
             console.log("removed dead client from", key);
           } else {
             client.is_alive = false; // becomes true on next ping
-            client.ping(); // this ping!
           }
         }
         if (clients[0] == undefined && clients[1] == undefined) {
@@ -71,32 +71,41 @@ const interval = setInterval(() => {
     });
   }
   cleanup_games();
-}, 10000);
+}, 6 * 1000);
 
-const random_ping = setInterval(() => {
+// ping every 5 seconds, but only engage gc every 6 seconds
+const auto_ping = setInterval(() => {
   wss.clients.forEach((client) => {
     if (client) client.ping();
+    else wss.clients.delete(client);
   });
-}, 20000);
+}, 5 * 1000);
 
-function heartbeat() {
-  this.is_alive = true;
-}
+// to fix a wierd bug where it would kill itself for "idling" when alive
+const ping_if_games = setInterval(() => {
+  console.log("try selfping");
+  if (Object.keys(games).length > 0) self_ping();
+  else console.log(`no selfping: ${Object.keys(games).length} `);
+}, 10 * 60 * 1000); // every ten minutes
 
 wss.on("close", function close() {
-  clearInterval(interval);
-  clearInterval(random_ping);
+  clearInterval(garbage_collector);
+  clearInterval(auto_ping);
+  clearInterval(ping_if_games);
 });
 
 console.log(`Server started on port ${PORT}`);
 wss.on("connection", (ws, req) => {
   console.log(`client connected (${req.socket.remoteAddress})`);
   ws.is_alive = true;
-  ws.send_packet = function (data, header) {
+  ws.heartbeat = function heartbeat() {
+    this.is_alive = true;
+  };
+  ws.send_packet = function send_packet(data, header) {
     const packet = putVar({ data: data, header: header });
     this.send(packet);
   };
-  ws.on("pong", heartbeat);
+  ws.on("pong", ws.heartbeat);
   // on message recieved
   ws.on("message", (message) => {
     let recieve = getVar(Buffer.from(message)).value;
