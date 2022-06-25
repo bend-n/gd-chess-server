@@ -1,7 +1,7 @@
-const WebSocket = require("ws");
+const { Server } = require("ws");
 
 const PORT = process.env.PORT || 3000;
-const wss = new WebSocket.Server({ port: PORT }); // init server asap
+const wss = new Server({ port: PORT }); // init server asap
 
 const { putVar, getVar } = require("@gd-com/utils");
 const { command } = require("./pg");
@@ -83,9 +83,7 @@ const auto_ping = setInterval(() => {
 
 // to fix a wierd bug where it would kill itself for "idling" when alive
 const ping_if_games = setInterval(() => {
-  console.log("try selfping");
   if (Object.keys(games).length > 0) self_ping();
-  else console.log(`no selfping: ${Object.keys(games).length} `);
 }, 10 * 60 * 1000); // every ten minutes
 
 wss.on("close", function close() {
@@ -223,76 +221,82 @@ function handle_joinrequest(data, ws) {
           "err: game full ( if rejoining, please try again in 10-20 seconds )";
         ws.send_packet(packet, HEADERS.joinrequest);
       }
-    else ws.send_packet("err: game does not exist", HEADERS.joinrequest);
+    else ws.send_packet(`err: game does not exist`, HEADERS.joinrequest);
   else ws.send_packet("err: gamecode or id not defined", HEADERS.joinrequest);
+}
+
+class Game {
+  constructor(data, ws) {
+    this.clients = [undefined, undefined];
+    this.clients[Number(!data.team)] = ws;
+    this.ids = [data.id]; // not a set so i can play against myself
+    this.infos = {
+      names: [data.name],
+      countrys: [data.country],
+      get(index) {
+        return {
+          name: this.names[index],
+          country: this.countrys[index],
+        };
+      },
+    };
+    this.spectators = [];
+    this.moves = [];
+    this.fullmoves = 1;
+    this.turn = true;
+  }
+  get pgn() {
+    return this.moves.join(" ");
+  }
+  add_turn(move) {
+    this.turn = !this.turn;
+    if (this.turn) {
+      this.moves.push(`${move}`);
+      this.fullmoves++;
+    } else this.moves.push(`${this.fullmoves}. ${move}`);
+  }
+  pop_move() {
+    this.moves.pop();
+    this.turn = !this.turn;
+    if (!this.turn) this.fullmoves--;
+  }
+  remove_client(ws) {
+    this.clients[this.clients.indexOf(ws)] = undefined;
+  }
+  add_spectator(ws) {
+    this.spectators.push(ws);
+  }
+  remove_spectator(ws) {
+    this.spectators.slice(this.spectators.indexOf(ws));
+  }
+  send_group_packet(packet, header) {
+    delete packet.gamecode;
+    send_group_packet(packet, header, this.clients);
+    send_group_packet(packet, header, this.spectators);
+  }
+  send_signal_packet(data, ws, header) {
+    let i = this.clients.indexOf(ws);
+    if (i !== -1) {
+      let sendto = this.clients[i ? 0 : 1];
+      delete data.gamecode; // dont send the gamecode to the other player: waste of bytes
+      if (sendto) {
+        sendto.send_packet(data, header);
+        console.log(`sending signal ${str_obj(data)}`);
+        send_group_packet(data, header, this.spectators); // give it to the specs
+        return true;
+      }
+    } else console.log(`could not find client in game ${data.gamecode}`);
+    return false;
+  }
 }
 
 function handle_hostrequest(data, ws) {
   if (data.gamecode !== undefined && data.id !== undefined) {
     if (games[data.gamecode] === undefined) {
+      if (data.team == undefined) data.team = true;
       console.log("hostrequest:", data.gamecode);
-      games[data.gamecode] = {
-        clients: [ws, undefined],
-        ids: [data.id], // not a set so i can play against myself
-        infos: {
-          names: [data.name],
-          countrys: [data.country],
-          get: function (index) {
-            return {
-              name: this.names[index],
-              country: this.countrys[index],
-            };
-          },
-        },
-        spectators: [],
-        moves: [],
-        pgn: "",
-        fullmoves: 1,
-        turn: true,
-        add_turn(move) {
-          this.turn = !this.turn;
-          if (this.turn) {
-            this.moves.push(`${move}`);
-            this.fullmoves++;
-          } else this.moves.push(`${this.fullmoves}. ${move}`);
-          this.pgn = this.moves.join(" ");
-        },
-        pop_move() {
-          this.moves.pop();
-          this.turn = !this.turn;
-          if (!this.turn) this.fullmoves--;
-          this.pgn = this.moves.join(" ");
-        },
-        remove_client(ws) {
-          this.clients[this.clients.indexOf(ws)] = undefined;
-        },
-        add_spectator(ws) {
-          this.spectators.push(ws);
-        },
-        remove_spectator(ws) {
-          this.spectators.slice(this.spectators.indexOf(ws));
-        },
-        send_group_packet(packet, header) {
-          delete packet.gamecode;
-          send_group_packet(packet, header, this.clients);
-          send_group_packet(packet, header, this.spectators);
-        },
-        send_signal_packet(data, ws, header) {
-          let i = this.clients.indexOf(ws);
-          if (i !== -1) {
-            let sendto = this.clients[i ? 0 : 1];
-            delete data.gamecode; // dont send the gamecode to the other player: waste of bytes
-            if (sendto) {
-              sendto.send_packet(data, header);
-              console.log(`sending signal ${str_obj(data)}`);
-              send_group_packet(data, header, this.spectators); // give it to the specs
-              return true;
-            }
-          } else console.log(`could not find client in game ${data.gamecode}`);
-          return false;
-        },
-      };
-      ws.send_packet({ idx: 0 }, HEADERS.hostrequest);
+      games[data.gamecode] = new Game(data, ws);
+      ws.send_packet({ idx: Number(!data.team) }, HEADERS.hostrequest);
       console.log(`game ${data.gamecode} created`);
     } else {
       const err_packet = `err: "${data.gamecode}" already exists`;
