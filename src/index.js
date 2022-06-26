@@ -199,12 +199,10 @@ function handle_joinrequest(data, ws) {
       game.ids.push(data.id);
       game.infos.names.push(data.name);
       game.infos.countrys.push(data.country);
-    }
+      send_group_packet(game.pgn, HEADERS.loadpgn, game.clients);
+    } else ws.send_packet(game.pgn, HEADERS.loadpgn); // rejoin: dont send to both
     game.clients[0].send_packet(game.infos.get(1), HEADERS.info);
     game.clients[1].send_packet(game.infos.get(0), HEADERS.info); // give each their data
-    if (!game.pgn) send_group_packet(game.pgn, HEADERS.loadpgn, game.clients);
-    else ws.send_packet(game.pgn, HEADERS.loadpgn); // only send it to the new guy
-    // if its empty send it to both(it acts as startgame signal)
     ws.send_packet({ idx: i }, HEADERS.joinrequest);
   }
   if (data.gamecode !== undefined && data.id !== undefined)
@@ -229,6 +227,7 @@ class Game {
   constructor(data, ws) {
     this.clients = [undefined, undefined];
     this.clients[Number(!data.team)] = ws;
+
     this.ids = [data.id]; // not a set so i can play against myself
     this.infos = {
       names: [data.name],
@@ -244,9 +243,15 @@ class Game {
     this.moves = [];
     this.fullmoves = 1;
     this.turn = true;
+    if (data.moves) this.load_move_array(data.moves);
   }
   get pgn() {
     return this.moves.join(" ");
+  }
+  load_move_array(move_array) {
+    move_array.forEach((item) => {
+      this.add_turn(item);
+    });
   }
   add_turn(move) {
     this.turn = !this.turn;
@@ -317,7 +322,7 @@ function handle_stop(data, ws) {
 
 function handle_move(data, ws) {
   const gc = data.gamecode;
-  if (dual_relay(data, ws, HEADERS.move)) games[gc].add_turn(data.move);
+  if (signal_other(data, ws, HEADERS.move)) games[gc].add_turn(data.move);
 }
 
 function handle_undo(data, ws) {
