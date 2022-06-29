@@ -327,8 +327,10 @@ function handle_move(data, ws) {
 
 function handle_undo(data, ws) {
   const gc = data.gamecode;
-  if (signal_other(data, ws, HEADERS.undo) && data.accepted == true)
+  if (signal_other(data, ws, HEADERS.undo) && data.accepted == true) {
     games[gc].pop_move();
+    if (data.two === true) games[gc].pop_move();
+  }
 }
 
 function handle_spectate(data, ws) {
