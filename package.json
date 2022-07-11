@@ -1,4 +1,5 @@
 {
+  "type": "module",
   "name": "gd-com-websocket-basic",
   "version": "1.0.0",
   "description": "",
@@ -11,6 +12,7 @@
   "license": "MIT",
   "dependencies": {
     "@gd-com/utils": "^4.1.0",
+    "chess.js": "^0.13.3",
     "pg": "^8.7.3",
     "ws": "^7.4.6"
   },

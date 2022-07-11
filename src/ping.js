@@ -1,4 +1,4 @@
-const https = require("https");
+import { request } from "https";
 
 const options = {
   hostname: "gd-chess-server.herokuapp.com",
@@ -6,9 +6,7 @@ const options = {
   method: "GET",
 };
 
-module.exports = {
-  self_ping: function ping() {
-    const ping = https.request(options);
-    ping.end();
-  },
+export const self_ping = function ping() {
+  const ping = request(options);
+  ping.end();
 };

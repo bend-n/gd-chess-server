@@ -1,4 +1,5 @@
-const { Pool } = require("pg");
+import pg from "pg";
+const { Pool } = pg;
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -9,7 +10,7 @@ pool.on("error", (err, client) => {
   console.error("Error:", err);
 });
 
-async function command(command) {
+export async function command(command) {
   let client;
   try {
     client = await pool.connect();
@@ -21,7 +22,3 @@ async function command(command) {
     client.release();
   }
 }
-
-module.exports = {
-  command: command,
-};

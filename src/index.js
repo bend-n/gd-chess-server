@@ -1,11 +1,14 @@
-const { Server } = require("ws");
+import ws from "ws";
+const { Server } = ws;
 
 const PORT = process.env.PORT || 3000;
 const wss = new Server({ port: PORT }); // init server asap
 
-const { putVar, getVar } = require("@gd-com/utils");
-const { command } = require("./pg");
-const { self_ping } = require("./ping");
+import utils from "@gd-com/utils";
+const { putVar, getVar } = utils;
+import { command } from "./pg.js";
+import { self_ping } from "./ping.js";
+import { Chess } from "chess.js";
 
 const HEADERS = {
   relay: "R",
@@ -240,25 +243,21 @@ class Game {
       },
     };
     this.spectators = [];
-    this.moves = [];
-    this.fullmoves = 1;
-    this.turn = true;
-    if (data.moves) this.load_move_array(data.moves);
+    this.game = new Chess();
+    if (data.hasOwnProperty("moves")) this.game.load_pgn(data.moves.join(" "));
   }
   get pgn() {
-    return this.moves.join(" ");
+    return this.game.pgn();
   }
-  load_move_array(move_array) {
-    move_array.forEach((item) => {
-      this.add_turn(item);
-    });
+  //true for valid
+  validate_move(move) {
+    const res = this.game.move(move);
+    if (str_obj(res) == "{}") return false;
+    this.game.undo();
+    return true;
   }
-  add_turn(move) {
-    this.turn = !this.turn;
-    if (this.turn) {
-      this.moves.push(`${move}`);
-      this.fullmoves++;
-    } else this.moves.push(`${this.fullmoves}. ${move}`);
+  add_move(move) {
+    this.game.move(move);
   }
   pop_move() {
     this.moves.pop();
@@ -320,7 +319,11 @@ function handle_stop(data, ws) {
 
 function handle_move(data, ws) {
   const gc = data.gamecode;
-  if (signal_other(data, ws, HEADERS.move)) games[gc].add_turn(data.move);
+  if (
+    games[gc].validate_move(data.move) &&
+    signal_other(data, ws, HEADERS.move)
+  )
+    games[gc].add_move(data.move);
 }
 
 function handle_undo(data, ws) {
