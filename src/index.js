@@ -311,13 +311,11 @@ function handle_hostrequest(data, ws) {
 }
 
 function handle_stop(data, ws) {
-  if (games.hasOwnProperty(data.gamecode)) {
-    if (games[data.gamecode].clients.includes(ws)) {
-      console.log("stopgame " + data.gamecode);
-      games[data.gamecode].send_group_packet(data.reason, HEADERS.stopgame);
-      delete games[data.gamecode]; // kill
-    }
-  }
+  if (
+    games.hasOwnProperty(data.gamecode) &&
+    games[data.gamecode].clients.includes(ws)
+  )
+    delete games[data.gamecode]; // kill
 }
 
 function handle_move(data, ws) {
