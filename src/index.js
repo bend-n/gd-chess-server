@@ -256,13 +256,11 @@ class Game {
     this.game.undo();
     return true;
   }
-  add_move(move) {
+  move(move) {
     this.game.move(move);
   }
-  pop_move() {
-    this.moves.pop();
-    this.turn = !this.turn;
-    if (!this.turn) this.fullmoves--;
+  undo() {
+    this.game.undo();
   }
   remove_client(ws) {
     this.clients[this.clients.indexOf(ws)] = undefined;
@@ -323,14 +321,14 @@ function handle_move(data, ws) {
     games[gc].validate_move(data.move) &&
     signal_other(data, ws, HEADERS.move)
   )
-    games[gc].add_move(data.move);
+    games[gc].move(data.move);
 }
 
 function handle_undo(data, ws) {
   const gc = data.gamecode;
   if (signal_other(data, ws, HEADERS.undo) && data.accepted == true) {
-    games[gc].pop_move();
-    if (data.two === true) games[gc].pop_move();
+    games[gc].undo();
+    if (data.two === true) games[gc].undo();
   }
 }
 
