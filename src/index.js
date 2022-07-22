@@ -194,11 +194,12 @@ async function signup(data, ws) {
 
 function handle_joinrequest(data, ws) {
   const game = games[data.gamecode];
-  function done(push = true) {
+  function done(rejoin = false) {
     console.log("joinrequest:", data.gamecode);
     const i = game.clients.indexOf(undefined);
     game.clients[i] = ws;
-    if (push) {
+    ws.send_packet({ idx: i }, HEADERS.joinrequest);
+    if (!rejoin) {
       game.ids.push(data.id);
       game.infos.names.push(data.name);
       game.infos.countrys.push(data.country);
@@ -206,7 +207,6 @@ function handle_joinrequest(data, ws) {
     } else ws.send_packet(game.pgn, HEADERS.loadpgn); // rejoin: dont send to both
     game.clients[0].send_packet(game.infos.get(1), HEADERS.info);
     game.clients[1].send_packet(game.infos.get(0), HEADERS.info); // give each their data
-    ws.send_packet({ idx: i }, HEADERS.joinrequest);
   }
   if (data.gamecode !== undefined && data.id !== undefined)
     if (game !== undefined)
@@ -216,7 +216,7 @@ function handle_joinrequest(data, ws) {
         game.clients.indexOf(undefined) !== -1 &&
         data.id !== ""
       )
-        done(false);
+        done(true);
       else {
         const packet =
           "err: game full ( if rejoining, please try again in 10-20 seconds )";
@@ -318,6 +318,7 @@ function handle_stop(data, ws) {
 function handle_move(data, ws) {
   const gc = data.gamecode;
   if (
+    games.hasOwnProperty(data.gamecode) &&
     games[gc].validate_move(data.move) &&
     signal_other(data, ws, HEADERS.move)
   )
