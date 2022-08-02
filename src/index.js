@@ -14,7 +14,6 @@ const HEADERS = {
   relay: "R",
   joinrequest: "J",
   hostrequest: "H",
-  stopgame: "K",
   signal: "S",
   create_user: "C",
   signin: ">",
@@ -110,9 +109,6 @@ wss.on("connection", (ws, req) => {
         case HEADERS.hostrequest:
           handle_hostrequest(data, ws);
           break;
-        case HEADERS.stopgame:
-          handle_stop(data, ws);
-          break;
         case HEADERS.signal:
           signal_other(data, ws);
           break;
@@ -197,7 +193,7 @@ function handle_joinrequest(data, ws) {
   const game = games[data.gamecode];
   if (data.gamecode !== undefined && data.id !== undefined) {
     if (game !== undefined) {
-      game.clean_clients(); // clean before attempting to join
+      game.clean_clients(false); // clean before attempting to join
       if (game.ids.length < 2) done();
       else if (
         game.ids.includes(data.id) &&
@@ -250,7 +246,7 @@ class Game {
     this.clients[this.clients.indexOf(ws)] = undefined;
   }
 
-  clean_clients() {
+  clean_clients(set_is_alive = true) {
     this.spectators.forEach((spec) => {
       if (spec.is_alive === false) {
         spec.terminate();
@@ -266,15 +262,13 @@ class Game {
           wss.clients.delete(client);
           this.remove_client(client);
           console.log("removed dead client from", this.gamecode);
-        } else {
-          client.is_alive = false; // becomes true on next ping
-        }
+        } else if (set_is_alive) client.is_alive = false; // becomes true on next ping
       }
     });
   }
 
   get dead() {
-    this.clean_clients();
+    this.clean_clients(false);
     return (
       this.clients[0] == undefined &&
       this.clients[1] == undefined &&
@@ -322,14 +316,6 @@ function handle_hostrequest(data, ws) {
       ws.send_packet(err_packet, HEADERS.hostrequest);
     }
   } else ws.send_packet("err: gamecode or id not defined", HEADERS.hostrequest);
-}
-
-function handle_stop(data, ws) {
-  if (
-    games.hasOwnProperty(data.gamecode) &&
-    games[data.gamecode].clients.includes(ws)
-  )
-    delete games[data.gamecode]; // kill
 }
 
 function handle_move(data, ws) {
