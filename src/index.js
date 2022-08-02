@@ -38,51 +38,37 @@ function send_group_packet(data, header, clients) {
   });
 }
 
-const garbage_collector = setInterval(() => {
-  function cleanup_games() {
+const auto_clean_clients = setInterval(() => {
+  const keys = Object.keys(games);
+  keys.forEach((key) => {
+    const game = games[key];
+    game.clean_clients();
+  });
+}, 20 * 1000);
+
+function delete_game_if_empty(game) {
+  if (game && game.dead) {
+    console.log(`dead game: ${game.gamecode} deleted (${game.pgn})`);
+    delete games[game.gamecode];
+  }
+}
+
+const auto_clean_games = setInterval(() => {
+  function clean_games() {
     const keys = Object.keys(games);
     keys.forEach((key) => {
-      // deal with clients dieing
-      const game = games[key];
-      let clients = game.clients;
-      clients.forEach((client) => {
-        if (client) {
-          if (client.is_alive === false) {
-            client.terminate();
-            wss.clients.delete(client);
-            game.remove_client(client);
-            console.log("removed dead client from", key);
-          } else {
-            client.is_alive = false; // becomes true on next ping
-          }
-        }
-        if (clients[0] == undefined && clients[1] == undefined) {
-          console.log(`dead game: ${key} deleted (${game.pgn})`);
-          delete games[key];
-          return;
-        }
-      });
-      // deal with spectators being ded
-      let specs = game.spectators;
-      specs.forEach((spec) => {
-        if (spec.is_alive === false) {
-          spec.terminate();
-          wss.clients.delete(spec);
-          game.remove_spectator(spec);
-        }
-      });
+      delete_game_if_empty(games[key]);
     });
   }
-  cleanup_games();
-}, 6 * 1000);
+  clean_games();
+}, 60 * 1000);
 
-// ping every 5 seconds, but only engage gc every 6 seconds
 const auto_ping = setInterval(() => {
   wss.clients.forEach((client) => {
     if (client) client.ping();
     else wss.clients.delete(client);
   });
-}, 5 * 1000);
+}, 10 * 1000);
 
 // to fix a wierd bug where it would kill itself for "idling" when alive
 const ping_if_games = setInterval(() => {
@@ -90,7 +76,8 @@ const ping_if_games = setInterval(() => {
 }, 10 * 60 * 1000); // every ten minutes
 
 wss.on("close", function close() {
-  clearInterval(garbage_collector);
+  clearInterval(auto_clean_clients);
+  clearInterval(auto_clean_games);
   clearInterval(auto_ping);
   clearInterval(ping_if_games);
 });
@@ -193,7 +180,6 @@ async function signup(data, ws) {
 }
 
 function handle_joinrequest(data, ws) {
-  const game = games[data.gamecode];
   function done(rejoin = false) {
     console.log("joinrequest:", data.gamecode);
     const i = game.clients.indexOf(undefined);
@@ -208,8 +194,10 @@ function handle_joinrequest(data, ws) {
     game.clients[0].send_packet(game.infos.get(1), HEADERS.info);
     game.clients[1].send_packet(game.infos.get(0), HEADERS.info); // give each their data
   }
-  if (data.gamecode !== undefined && data.id !== undefined)
-    if (game !== undefined)
+  const game = games[data.gamecode];
+  if (data.gamecode !== undefined && data.id !== undefined) {
+    if (game !== undefined) {
+      game.clean_clients(); // clean before attempting to join
       if (game.ids.length < 2) done();
       else if (
         game.ids.includes(data.id) &&
@@ -217,20 +205,16 @@ function handle_joinrequest(data, ws) {
         data.id !== ""
       )
         done(true);
-      else {
-        const packet =
-          "err: game full ( if rejoining, please try again in 10-20 seconds )";
-        ws.send_packet(packet, HEADERS.joinrequest);
-      }
-    else ws.send_packet(`err: game does not exist`, HEADERS.joinrequest);
-  else ws.send_packet("err: gamecode or id not defined", HEADERS.joinrequest);
+      else ws.send_packet("err: game full", HEADERS.joinrequest);
+    } else ws.send_packet(`err: game does not exist`, HEADERS.joinrequest);
+  } else ws.send_packet("err: gamecode or id not defined", HEADERS.joinrequest);
 }
 
 class Game {
   constructor(data, ws) {
     this.clients = [undefined, undefined];
     this.clients[Number(!data.team)] = ws;
-
+    this.gamecode = data.gamecode;
     this.ids = [data.id]; // not a set so i can play against myself
     this.infos = {
       names: [data.name],
@@ -265,6 +249,38 @@ class Game {
   remove_client(ws) {
     this.clients[this.clients.indexOf(ws)] = undefined;
   }
+
+  clean_clients() {
+    this.spectators.forEach((spec) => {
+      if (spec.is_alive === false) {
+        spec.terminate();
+        wss.clients.delete(spec);
+        this.remove_spectator(spec);
+      }
+    });
+
+    this.clients.forEach((client) => {
+      if (client) {
+        if (client.is_alive === false) {
+          client.terminate();
+          wss.clients.delete(client);
+          this.remove_client(client);
+          console.log("removed dead client from", this.gamecode);
+        } else {
+          client.is_alive = false; // becomes true on next ping
+        }
+      }
+    });
+  }
+
+  get dead() {
+    this.clean_clients();
+    return (
+      this.clients[0] == undefined &&
+      this.clients[1] == undefined &&
+      this.spectators.length == 0
+    );
+  }
   add_spectator(ws) {
     this.spectators.push(ws);
   }
@@ -294,6 +310,7 @@ class Game {
 
 function handle_hostrequest(data, ws) {
   if (data.gamecode !== undefined && data.id !== undefined) {
+    delete_game_if_empty(games[data.gamecode]); // see if its dead
     if (games[data.gamecode] === undefined) {
       if (data.team == undefined) data.team = true;
       console.log("hostrequest:", data.gamecode);
