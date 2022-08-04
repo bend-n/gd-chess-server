@@ -186,9 +186,14 @@ function handle_joinrequest(data, ws) {
       game.infos.names.push(data.name);
       game.infos.countrys.push(data.country);
       send_group_packet(game.pgn, HEADERS.loadpgn, game.clients);
+      if (game.clients[0] !== undefined)
+        game.clients[0].send_packet(game.infos.get(1), HEADERS.info);
+      if (game.clients[1] !== undefined)
+        game.clients[1].send_packet(game.infos.get(0), HEADERS.info);
     } else ws.send_packet(game.pgn, HEADERS.loadpgn); // rejoin: dont send to both
-    game.clients[0].send_packet(game.infos.get(1), HEADERS.info);
-    game.clients[1].send_packet(game.infos.get(0), HEADERS.info); // give each their data
+    let other = i == 0 ? 1 : 0;
+    if (game.clients[other] !== undefined)
+      game.clients[other].send_packet(game.infos.get(i), HEADERS.info);
   }
   const game = games[data.gamecode];
   if (data.gamecode !== undefined && data.id !== undefined) {
