@@ -8,7 +8,8 @@ import utils from "@gd-com/utils";
 const { putVar, getVar } = utils;
 import { command } from "./pg.js";
 import { self_ping } from "./ping.js";
-import { Chess } from "chess.js";
+import { Game } from "./game.js";
+import { str_obj, flip_int, send_group_packet } from "./utils.js";
 
 const HEADERS = {
   relay: "R",
@@ -27,16 +28,6 @@ const HEADERS = {
 
 // { gamecode: {clients: {}, ids: {}, infos: {names: [], countrys:[]} turn = true, pgn: ""} }
 let games = {};
-
-function str_obj(obj) {
-  return JSON.stringify(obj, null, 0);
-}
-
-function send_group_packet(data, header, clients) {
-  clients.forEach((client) => {
-    if (client) client.send_packet(data, header);
-  });
-}
 
 const auto_clean_clients = setInterval(() => {
   const keys = Object.keys(games);
@@ -84,7 +75,11 @@ wss.on("close", function close() {
 
 console.log(`Server started on port ${PORT}`);
 wss.on("connection", (ws, req) => {
-  console.log(`client connected (${req.socket.remoteAddress})`);
+  console.log(
+    `client connected (${
+      req.headers["x-forwarded-for"] || req.socket.remoteAddress
+    })`
+  );
   ws.is_alive = true;
   ws.heartbeat = function heartbeat() {
     this.is_alive = true;
@@ -153,7 +148,6 @@ async function signin(data, ws) {
 }
 
 async function signup(data, ws) {
-  console.log("attempting to create user");
   const res = await get_propertys(data.name);
   if (res) {
     ws.send_packet("err: user already exists", HEADERS.create_user);
@@ -179,142 +173,45 @@ async function signup(data, ws) {
   ws.send_packet(id, HEADERS.create_user);
 }
 
+// hoster does *not* call this function with itself. joiner must tell hoster about itself
 function handle_joinrequest(data, ws) {
-  function done(rejoin = false) {
-    console.log("joinrequest:", data.gamecode);
-    const i = game.clients.indexOf(undefined);
-    game.clients[i] = ws;
-    ws.send_packet({ idx: i }, HEADERS.joinrequest);
-    if (!rejoin) {
-      game.ids.push(data.id);
-      game.infos.names.push(data.name);
-      game.infos.countrys.push(data.country);
-      send_group_packet(game.pgn, HEADERS.loadpgn, game.clients);
-      if (game.clients[0] !== undefined)
-        game.clients[0].send_packet(game.infos.get(1), HEADERS.info);
-      if (game.clients[1] !== undefined)
-        game.clients[1].send_packet(game.infos.get(0), HEADERS.info);
-    } else ws.send_packet(game.pgn, HEADERS.loadpgn); // rejoin: dont send to both
-    let other = i == 0 ? 1 : 0;
-    if (game.clients[other] !== undefined)
-      game.clients[other].send_packet(game.infos.get(i), HEADERS.info);
+  function send_info(they_know_about_me = false) {
+    const us = game.ids.indexOf(data.id);
+    const them = flip_int(us);
+    // in a ideal world, clients dont disconnect and become undefined. we do not live in a ideal world. (sadly) (or they just left the game :/)
+    if (game.clients[them] !== undefined && !they_know_about_me) {
+      game.clients[them].send_packet(game.infos.get(us), HEADERS.info);
+    }
+    game.clients[us].send_packet(game.infos.get(them), HEADERS.info);
   }
   const game = games[data.gamecode];
-  if (data.gamecode !== undefined && data.id !== undefined) {
+  if (data.gamecode !== undefined && data.id) {
     if (game !== undefined) {
-      game.clean_clients(false); // clean before attempting to join
-      if (game.ids.length < 2) done();
-      else if (
-        game.ids.includes(data.id) &&
-        game.clients.indexOf(undefined) !== -1 &&
-        data.id !== ""
-      )
-        done(true);
-      else ws.send_packet("err: game full", HEADERS.joinrequest);
+      if (game.players < 2) {
+        // hoster is waiting for someone to join
+        game.add_client(ws, data);
+        ws.send_packet({ idx: game.joinerIndex }, HEADERS.joinrequest); // tell them what team they are
+        send_group_packet(game.pgn, HEADERS.loadpgn, game.clients); // hoster doesnt send a joinrequest, so tell it to load pgn too
+        send_info();
+        console.log(`${data.name} joined ${data.gamecode}`);
+      } else if (game.ids.includes(data.id)) {
+        // someone is trying to rejoin
+        console.log(
+          `rejoin ${data.name} to ${
+            game.ids.indexOf(data.id) === 0 ? "white" : "black"
+          }`
+        );
+        game.clients[game.ids.indexOf(data.id)] = ws;
+        ws.send_packet(game.pgn, HEADERS.loadpgn); // pass them the pgn
+        send_info(true); // and send them their opponents info
+      } else {
+        console.log(
+          `rejected join to ${data.gamecode} (by ${data.name}): game full / id(${data.id}) not included in ${game.ids}`
+        );
+        ws.send_packet("err: game full", HEADERS.joinrequest);
+      }
     } else ws.send_packet(`err: game does not exist`, HEADERS.joinrequest);
   } else ws.send_packet("err: gamecode or id not defined", HEADERS.joinrequest);
-}
-
-class Game {
-  constructor(data, ws) {
-    this.clients = [undefined, undefined];
-    this.clients[Number(!data.team)] = ws;
-    this.gamecode = data.gamecode;
-    this.ids = [data.id]; // not a set so i can play against myself
-    this.infos = {
-      names: [data.name],
-      countrys: [data.country],
-      get(index) {
-        return {
-          name: this.names[index],
-          country: this.countrys[index],
-        };
-      },
-    };
-    this.spectators = [];
-    this.game = new Chess();
-    if (data.hasOwnProperty("moves")) this.game.load_pgn(data.moves.join(" "));
-  }
-  get pgn() {
-    return this.game.pgn();
-  }
-  //true for valid
-  validate_move(move) {
-    const res = this.game.move(move);
-    if (str_obj(res) == "{}") return false;
-    this.game.undo();
-    return true;
-  }
-  move(move) {
-    this.game.move(move);
-  }
-  undo() {
-    this.game.undo();
-  }
-  remove_client(ws) {
-    this.clients[this.clients.indexOf(ws)] = undefined;
-  }
-
-  clean_clients(set_is_alive = true) {
-    this.spectators.forEach((spec) => {
-      if (spec.is_alive === false) {
-        spec.terminate();
-        wss.clients.delete(spec);
-        this.remove_spectator(spec);
-      }
-    });
-
-    this.clients.forEach((client) => {
-      if (client) {
-        if (client.is_alive === false) {
-          client.terminate();
-          wss.clients.delete(client);
-          this.remove_client(client);
-          console.log("removed dead client from", this.gamecode);
-        } else if (set_is_alive) client.is_alive = false; // becomes true on next ping
-      }
-    });
-  }
-
-  get dead() {
-    this.clean_clients(false);
-    return (
-      this.clients[0] == undefined &&
-      this.clients[1] == undefined &&
-      this.spectators.length == 0
-    );
-  }
-  add_spectator(ws) {
-    this.spectators.push(ws);
-  }
-  remove_spectator(ws) {
-    this.spectators.slice(this.spectators.indexOf(ws));
-  }
-  send_group_packet(packet, header) {
-    delete packet.gamecode;
-    send_group_packet(packet, header, this.clients);
-    send_group_packet(packet, header, this.spectators);
-  }
-  send_signal_packet(data, ws, header) {
-    let i = this.clients.indexOf(ws);
-    if (i !== -1) {
-      let sendto = this.clients[i ? 0 : 1];
-      delete data.gamecode; // dont send the gamecode to the other player: waste of bytes
-      if (sendto) {
-        sendto.send_packet(data, header);
-        console.log(`sending signal ${str_obj(data)}`);
-        send_group_packet(data, header, this.spectators); // give it to the specs
-        return true;
-      }
-    } else console.log(`could not find client in game ${data.gamecode}`);
-    return false;
-  }
-  is_game_over() {
-    return this.game.game_over();
-  }
-  reset_game() {
-    this.game = new Chess();
-  }
 }
 
 function handle_hostrequest(data, ws) {
@@ -322,8 +219,7 @@ function handle_hostrequest(data, ws) {
     delete_game_if_empty(games[data.gamecode]); // see if its dead
     if (games[data.gamecode] === undefined) {
       if (data.team == undefined) data.team = true;
-      console.log("hostrequest:", data.gamecode);
-      games[data.gamecode] = new Game(data, ws);
+      games[data.gamecode] = new Game(data, ws, wss);
       ws.send_packet({ idx: Number(!data.team) }, HEADERS.hostrequest);
       console.log(`game ${data.gamecode} created`);
     } else {
@@ -340,7 +236,8 @@ function handle_move(data, ws) {
     games[gc].validate_move(data.move) &&
     signal_other(data, ws, HEADERS.move)
   )
-    games[gc].move(data.move);
+    console.log("made move", data.move, "on", gc);
+  games[gc].move(data.move);
 }
 
 function handle_undo(data, ws) {
@@ -355,22 +252,15 @@ function handle_undo(data, ws) {
 function handle_rematch(data, ws) {
   const gc = data.gamecode;
   if (games.hasOwnProperty(gc)) {
-    if (games[gc].is_game_over() === true) {
-      signal_other(data, ws, HEADERS.rematch);
-      // check if its a request, and if the request is accepted
-      if (data.accepted === true) games[gc].reset_game(); // reset if it is
-    } else
-      ws.send_packet(
-        { accepted: false, err: "Game not over" },
-        HEADERS.rematch
-      );
+    signal_other(data, ws, HEADERS.rematch);
+    // check if its a request, and if the request is accepted
+    if (data.accepted === true) games[gc].reset_game(); // reset if it is
   }
 }
 
 function handle_spectate(data, ws) {
   if (games.hasOwnProperty(data.gamecode)) {
     const game = games[data.gamecode];
-    console.log("spectate " + data.gamecode);
     game.add_spectator(ws);
     const packet = {
       white: game.infos.get(0),
@@ -386,7 +276,6 @@ function handle_spectate(data, ws) {
 function dual_relay(data, ws, header = HEADERS.relay) {
   if (games.hasOwnProperty(data.gamecode)) {
     games[data.gamecode].send_group_packet(data, header);
-    console.log(`relaying ${str_obj(data)} to both clients`);
     return true;
   } else console.log(`dual relay: game ${data.gamecode} does not exist`);
   return false;
