@@ -21,6 +21,7 @@ const HEADERS = {
   info: "I",
   move: "M",
   undo: "<",
+  rematch: "r",
   spectate: "0", // the eye
 };
 
@@ -103,6 +104,9 @@ wss.on("connection", (ws, req) => {
         case HEADERS.relay:
           dual_relay(data, ws);
           break;
+        case HEADERS.move:
+          handle_move(data, ws);
+          break;
         case HEADERS.joinrequest:
           handle_joinrequest(data, ws);
           break;
@@ -124,8 +128,8 @@ wss.on("connection", (ws, req) => {
         case HEADERS.spectate:
           handle_spectate(data, ws);
           break;
-        case HEADERS.move:
-          handle_move(data, ws);
+        case HEADERS.rematch:
+          handle_rematch(data, ws);
           break;
         default:
           console.log(`header ${header} unknown`);
@@ -305,6 +309,12 @@ class Game {
     } else console.log(`could not find client in game ${data.gamecode}`);
     return false;
   }
+  is_game_over() {
+    return this.game.game_over();
+  }
+  reset_game() {
+    this.game = new Chess();
+  }
 }
 
 function handle_hostrequest(data, ws) {
@@ -335,9 +345,25 @@ function handle_move(data, ws) {
 
 function handle_undo(data, ws) {
   const gc = data.gamecode;
-  if (signal_other(data, ws, HEADERS.undo) && data.accepted == true) {
+  const sent = signal_other(data, ws, HEADERS.undo);
+  if (sent && data.accepted === true) {
     games[gc].undo();
     if (data.two === true) games[gc].undo();
+  }
+}
+
+function handle_rematch(data, ws) {
+  const gc = data.gamecode;
+  if (games.hasOwnProperty(gc)) {
+    if (games[gc].is_game_over() === true) {
+      signal_other(data, ws, HEADERS.rematch);
+      // check if its a request, and if the request is accepted
+      if (data.accepted === true) games[gc].reset_game(); // reset if it is
+    } else
+      ws.send_packet(
+        { accepted: false, err: "Game not over" },
+        HEADERS.rematch
+      );
   }
 }
 
