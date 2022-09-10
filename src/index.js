@@ -144,14 +144,13 @@ async function signin(data, ws) {
   const c = `SELECT id, country FROM users WHERE name = '${data.name}' AND password = '${data.password}';`;
   const res = await command(c);
   if (res.rows[0]) ws.send_packet(res.rows[0], HEADERS.signin);
-  else ws.send_packet("Incorrect credentials", HEADERS.signin);
+  else ws.send_packet({ err: "INVALID_DATA" }, HEADERS.signin);
 }
 
 async function signup(data, ws) {
   const res = await get_propertys(data.name);
   if (res) {
-    ws.send_packet("err: user already exists", HEADERS.create_user);
-    console.error("user already exists");
+    ws.send_packet({ err: "ALREADY_EXISTS" }, HEADERS.create_user);
     return; // if existing, send err
   }
 
@@ -165,12 +164,12 @@ async function signup(data, ws) {
   try {
     id = await init_user();
   } catch (e) {
-    const packet = `err: could not create user(${e.stack})`;
+    const packet = { err: "FAILED", stack: e.stack };
     ws.send_packet(packet, HEADERS.create_user);
     console.error(e.stack);
     return;
   }
-  ws.send_packet(id, HEADERS.create_user);
+  ws.send_packet({ id: id }, HEADERS.create_user);
 }
 
 // hoster does *not* call this function with itself. joiner must tell hoster about itself
@@ -185,48 +184,51 @@ function handle_joinrequest(data, ws) {
     game.clients[us].send_packet(game.infos.get(them), HEADERS.info);
   }
   const game = games[data.gamecode];
-  if (data.gamecode !== undefined && data.id) {
-    if (game !== undefined) {
-      if (game.players < 2) {
-        // hoster is waiting for someone to join
-        game.add_client(ws, data);
-        ws.send_packet({ idx: game.joinerIndex }, HEADERS.joinrequest); // tell them what team they are
-        send_group_packet(game.pgn, HEADERS.loadpgn, game.clients); // hoster doesnt send a joinrequest, so tell it to load pgn too
-        send_info();
-        console.log(`${data.name} joined ${data.gamecode}`);
-      } else if (game.ids.includes(data.id)) {
-        // someone is trying to rejoin
-        console.log(
-          `rejoin ${data.name} to ${
-            game.ids.indexOf(data.id) === 0 ? "white" : "black"
-          }`
-        );
-        game.clients[game.ids.indexOf(data.id)] = ws;
-        ws.send_packet(game.pgn, HEADERS.loadpgn); // pass them the pgn
-        send_info(true); // and send them their opponents info
-      } else {
-        console.log(
-          `rejected join to ${data.gamecode} (by ${data.name}): game full / id(${data.id}) not included in ${game.ids}`
-        );
-        ws.send_packet("err: game full", HEADERS.joinrequest);
-      }
-    } else ws.send_packet(`err: game does not exist`, HEADERS.joinrequest);
-  } else ws.send_packet("err: gamecode or id not defined", HEADERS.joinrequest);
+  if (data.id) {
+    if (data.gamecode !== undefined) {
+      if (game !== undefined) {
+        if (game.players < 2) {
+          // hoster is waiting for someone to join
+          game.add_client(ws, data);
+          ws.send_packet({ idx: game.joinerIndex }, HEADERS.joinrequest); // tell them what team they are
+          send_group_packet(game.pgn, HEADERS.loadpgn, game.clients); // hoster doesnt send a joinrequest, so tell it to load pgn too
+          send_info();
+          console.log(`${data.name} joined ${data.gamecode}`);
+        } else if (game.ids.includes(data.id)) {
+          // someone is trying to rejoin
+          console.log(
+            `rejoin ${data.name} to ${
+              game.ids.indexOf(data.id) === 0 ? "white" : "black"
+            }`
+          );
+          game.clients[game.ids.indexOf(data.id)] = ws;
+          ws.send_packet(game.pgn, HEADERS.loadpgn); // pass them the pgn
+          send_info(true); // and send them their opponents info
+        } else {
+          console.log(
+            `rejected join to ${data.gamecode} (by ${data.name}): game full / id(${data.id}) not included in ${game.ids}`
+          );
+          ws.send_packet({ err: "FULL" }, HEADERS.joinrequest);
+        }
+      } else ws.send_packet({ err: "NOT_EXIST" }, HEADERS.joinrequest);
+    } else ws.send_packet({ err: "NO_GAMECODE" }, HEADERS.joinrequest);
+  } else ws.send_packet({ err: "NO_ID" }, HEADERS.joinrequest);
 }
 
 function handle_hostrequest(data, ws) {
-  if (data.gamecode !== undefined && data.id !== undefined) {
-    delete_game_if_empty(games[data.gamecode]); // see if its dead
-    if (games[data.gamecode] === undefined) {
-      if (data.team == undefined) data.team = true;
-      games[data.gamecode] = new Game(data, ws, wss);
-      ws.send_packet({ idx: Number(!data.team) }, HEADERS.hostrequest);
-      console.log(`game ${data.gamecode} created`);
-    } else {
-      const err_packet = `err: "${data.gamecode}" already exists`;
-      ws.send_packet(err_packet, HEADERS.hostrequest);
-    }
-  } else ws.send_packet("err: gamecode or id not defined", HEADERS.hostrequest);
+  if (data.id !== undefined) {
+    if (data.gamecode !== undefined) {
+      delete_game_if_empty(games[data.gamecode]); // see if its dead
+      if (games[data.gamecode] === undefined) {
+        if (data.team == undefined) data.team = true;
+        games[data.gamecode] = new Game(data, ws, wss);
+        ws.send_packet({ idx: Number(!data.team) }, HEADERS.hostrequest);
+        console.log(`game ${data.gamecode} created`);
+      } else if (games[data.gamecode].players < 2)
+        ws.send_packet({ err: "ALREADY_EXISTS_EMPTY" }, HEADERS.hostrequest);
+      else ws.send_packet({ err: "ALREADY_EXISTS" }, HEADERS.hostrequest);
+    } else ws.send_packet({ err: "NO_GAMECODE" }, HEADERS.hostrequest);
+  } else ws.send_packet({ err: "NO_ID" }, HEADERS.hostrequest);
 }
 
 function handle_move(data, ws) {
@@ -269,7 +271,7 @@ function handle_spectate(data, ws) {
     }; // spectator starter kit
     // provides white info, black info, and pgn
     ws.send_packet(packet, HEADERS.spectate);
-  } else ws.send_packet("err: game does not exist", HEADERS.spectate);
+  } else ws.send_packet({ err: "NOT_EXIST" }, HEADERS.spectate);
 }
 
 // relays to both clients
