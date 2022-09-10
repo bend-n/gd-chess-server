@@ -1,8 +1,7 @@
-import ws from "ws";
-const { Server } = ws;
+import { WebSocketServer } from "ws";
 
 const PORT = process.env.PORT || 3000;
-const wss = new Server({ port: PORT }); // init server asap
+const wss = new WebSocketServer({ port: PORT }); // init server asap
 
 import utils from "@gd-com/utils";
 const { putVar, getVar } = utils;
