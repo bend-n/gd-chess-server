@@ -1,65 +1,58 @@
 import { Chess } from "chess.js";
-import { Infos } from "./infos.js";
-import { str_obj, flip_int, send_group_packet } from "./utils.js";
+import { Clients } from "./clients.js";
+import { str_obj, send_group_packet, flip_color } from "./utils.js";
 
 export class Game {
   constructor(data, ws, wss) {
     this.wss = wss;
-    this.hosterIndex = Number(!data.team);
-    this.clients = [undefined, undefined];
-    this.clients[this.hosterIndex] = ws; // team === true : 0 ? 1
     this.gamecode = data.gamecode;
-    this.ids = [undefined, undefined]; // not a set so i can play against myself
-    this.ids[this.hosterIndex] = data.id;
-    this.infos = new Infos(this.hosterIndex, data.name, data.country);
+    this.clients = new Clients(ws, data.id, data.name, data.country, data.team);
     this.spectators = [];
     this.game = new Chess();
-    if (data.hasOwnProperty("moves")) this.game.load_pgn(data.moves.join(" "));
+    if (data.hasOwnProperty("moves")) {
+      if (typeof data.moves == "string") this.game.load_pgn(data.moves);
+      else this.game.load_pgn(data.moves.join(" "));
+    }
+
+    // create func aliases
+    this.get_info = this.clients.get_info.bind(this.clients);
+    this.get_ws = this.clients.get_ws.bind(this.clients);
+    this.color_of = this.clients.color_of.bind(this.clients);
+    this.exists = this.clients.exists.bind(this.clients);
+    this.remove_client = this.clients.erase.bind(this.clients);
+    this.add_spectator = this.spectators.push;
+
+    this.is_game_over = this.game.game_over;
+    this.move = this.game.move;
+    this.undo = this.game.undo;
   }
+
   get pgn() {
     return this.game.pgn();
   }
 
   get players() {
-    let players = 0;
-    this.ids.forEach((id) => {
-      if (id !== undefined) players++;
-    });
-    return players;
+    return this.clients.players;
   }
 
   get client_count() {
-    let clients = 0;
-    this.clients.forEach((client) => {
-      if (client !== undefined) clients++;
-    });
-    return clients;
+    return this.clients.length;
   }
 
-  get joinerIndex() {
-    return flip_int(this.hosterIndex);
+  get client_list() {
+    return this.clients.client_list;
   }
-  //true for valid
+
+  // true for valid
   validate_move(move) {
     const res = this.game.move(move);
     if (str_obj(res) == "{}") return false;
     this.game.undo();
     return true;
   }
-  move(move) {
-    this.game.move(move);
-  }
-  undo() {
-    this.game.undo();
-  }
-  remove_client(ws) {
-    this.clients[this.clients.indexOf(ws)] = undefined;
-  }
 
-  add_client(ws, data) {
-    this.clients[this.joinerIndex] = ws;
-    this.ids[this.joinerIndex] = data.id;
-    this.infos.add(data.name, data.country);
+  add_client(ws, data, is_white = this.clients.w.empty) {
+    this.clients.add(ws, data.name, data.id, data.country, is_white);
   }
 
   clean_clients(set_is_alive = true) {
@@ -77,7 +70,7 @@ export class Game {
       remove_client(spec, this.wss, this.remove_spectator.bind(this));
     });
 
-    this.clients.forEach((client) => {
+    this.client_list.forEach((client) => {
       remove_client(client, this.wss, this.remove_client.bind(this));
     });
   }
@@ -86,21 +79,20 @@ export class Game {
     return this.client_count === 0 && this.spectators.length == 0;
   }
 
-  add_spectator(ws) {
-    this.spectators.push(ws);
-  }
   remove_spectator(ws) {
     this.spectators.slice(this.spectators.indexOf(ws));
   }
+
   send_group_packet(packet, header) {
     delete packet.gamecode;
-    send_group_packet(packet, header, this.clients);
+    send_group_packet(packet, header, this.clients.client_list);
     send_group_packet(packet, header, this.spectators);
   }
+
   send_signal_packet(data, ws, header) {
-    let i = this.clients.indexOf(ws);
-    if (i !== -1) {
-      let sendto = this.clients[i ? 0 : 1];
+    let us = this.color_of(ws);
+    if (us !== undefined) {
+      let sendto = this.get_ws(flip_color(us));
       delete data.gamecode; // dont send the gamecode to the other player: waste of bytes
       if (sendto) {
         sendto.send_packet(data, header);
@@ -110,9 +102,7 @@ export class Game {
     } else console.log(`could not find client in game ${data.gamecode}`);
     return false;
   }
-  is_game_over() {
-    return this.game.game_over();
-  }
+
   reset_game() {
     this.game = new Chess();
   }

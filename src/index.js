@@ -8,7 +8,7 @@ const { putVar, getVar } = utils;
 import { command } from "./pg.js";
 import { self_ping } from "./ping.js";
 import { Game } from "./game.js";
-import { str_obj, flip_int, send_group_packet } from "./utils.js";
+import { flip_color } from "./utils.js";
 
 const HEADERS = {
   relay: "R",
@@ -174,14 +174,16 @@ async function signup(data, ws) {
 // hoster does *not* call this function with itself. joiner must tell hoster about itself
 function handle_joinrequest(data, ws) {
   function send_info(they_know_about_me = false) {
-    const us = game.ids.indexOf(data.id);
-    const them = flip_int(us);
-    // in a ideal world, clients dont disconnect and become undefined. we do not live in a ideal world. (sadly) (or they just left the game :/)
-    if (game.clients[them] !== undefined && !they_know_about_me) {
-      game.clients[them].send_packet(game.infos.get(us), HEADERS.info);
-    }
-    game.clients[us].send_packet(game.infos.get(them), HEADERS.info);
+    const us = game.clients.color_of(ws);
+    const them = flip_color(us);
+    // in a ideal world, clients dont disconnect and stop existing. we do not live in a ideal world. (sadly) (or they just left the game :/)
+    if (game.exists(them) && !they_know_about_me)
+      game.get_ws(them).send_packet(game.get_info(us), HEADERS.info);
+
+    // send a packet to us
+    game.get_ws(us).send_packet(game.get_info(them), HEADERS.info);
   }
+
   const game = games[data.gamecode];
   if (data.id) {
     if (data.gamecode !== undefined) {
@@ -190,24 +192,23 @@ function handle_joinrequest(data, ws) {
           // hoster is waiting for someone to join
           game.add_client(ws, data);
           ws.send_packet({ idx: game.joinerIndex }, HEADERS.joinrequest); // tell them what team they are
-          send_group_packet(game.pgn, HEADERS.loadpgn, game.clients); // hoster doesnt send a joinrequest, so tell it to load pgn too
+          game.send_group_packet(game.pgn, HEADERS.loadpgn); // hoster doesnt send a joinrequest, so tell it to load pgn too
           send_info();
           console.log(`${data.name} joined ${data.gamecode}`);
-        } else if (game.ids.includes(data.id)) {
-          // someone is trying to rejoin
-          console.log(
-            `rejoin ${data.name} to ${
-              game.ids.indexOf(data.id) === 0 ? "white" : "black"
-            }`
-          );
-          game.clients[game.ids.indexOf(data.id)] = ws;
-          ws.send_packet(game.pgn, HEADERS.loadpgn); // pass them the pgn
-          send_info(true); // and send them their opponents info
         } else {
-          console.log(
-            `rejected join to ${data.gamecode} (by ${data.name}): game full / id(${data.id}) not included in ${game.ids}`
-          );
-          ws.send_packet({ err: "FULL" }, HEADERS.joinrequest);
+          let color = game.color_of(data.name, data.country, data.id);
+          if (color != undefined) {
+            // someone is trying to rejoin
+            console.log(`rejoin ${data.name} to ${color}`);
+            game.add_client(ws, data, color == "w");
+            ws.send_packet(game.pgn, HEADERS.loadpgn); // pass them the pgn
+            send_info(true); // and send them their opponents info
+          } else {
+            console.log(
+              `rejected join to ${data.gamecode} (by ${data.name}): game full / id(${data.id}) not included in ${game.ids}`
+            );
+            ws.send_packet({ err: "FULL" }, HEADERS.joinrequest);
+          }
         }
       } else ws.send_packet({ err: "NOT_EXIST" }, HEADERS.joinrequest);
     } else ws.send_packet({ err: "NO_GAMECODE" }, HEADERS.joinrequest);
