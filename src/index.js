@@ -190,8 +190,9 @@ function handle_joinrequest(data, ws) {
       if (game !== undefined) {
         if (game.players < 2) {
           // hoster is waiting for someone to join
-          game.add_client(ws, data);
-          ws.send_packet({ idx: game.joinerIndex }, HEADERS.joinrequest); // tell them what team they are
+
+          const joiner_idx = game.add_client(ws, data);
+          ws.send_packet({ idx: joiner_idx }, HEADERS.joinrequest); // tell them what team they are
           game.send_group_packet(game.pgn, HEADERS.loadpgn); // hoster doesnt send a joinrequest, so tell it to load pgn too
           send_info();
           console.log(`${data.name} joined ${data.gamecode}`);

@@ -53,6 +53,7 @@ export class Game {
 
   add_client(ws, data, is_white = this.clients.w.empty) {
     this.clients.add(ws, data.name, data.id, data.country, is_white);
+    return is_white ? 0 : 1;
   }
 
   clean_clients(set_is_alive = true) {
