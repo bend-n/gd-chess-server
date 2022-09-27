@@ -61,8 +61,8 @@ export class Clients {
     else this.b = create_data(ws, id, name, country);
   }
 
-  exists(color) {
-    return color === "w" ? !this.w.empty : !this.b.empty;
+  alive(color) {
+    return color === "w" ? !!this.w.ws : !!this.b.ws;
   }
 
   // fake function overloading

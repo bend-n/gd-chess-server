@@ -177,7 +177,7 @@ function handle_joinrequest(data, ws) {
     const us = game.clients.color_of(ws);
     const them = flip_color(us);
     // in a ideal world, clients dont disconnect and stop existing. we do not live in a ideal world. (sadly) (or they just left the game :/)
-    if (game.exists(them) && !they_know_about_me)
+    if (game.alive(them) && !they_know_about_me)
       game.get_ws(them).send_packet(game.get_info(us), HEADERS.info);
 
     // send a packet to us
