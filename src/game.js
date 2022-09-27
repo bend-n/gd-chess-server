@@ -18,7 +18,7 @@ export class Game {
     this.get_info = this.clients.get_info.bind(this.clients);
     this.get_ws = this.clients.get_ws.bind(this.clients);
     this.color_of = this.clients.color_of.bind(this.clients);
-    this.exists = this.clients.exists.bind(this.clients);
+    this.alive = this.clients.alive.bind(this.clients);
     this.remove_client = this.clients.erase.bind(this.clients);
     this.add_spectator = this.spectators.push;
 
