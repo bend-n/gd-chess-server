@@ -201,6 +201,7 @@ function handle_joinrequest(data, ws) {
           if (color != undefined) {
             // someone is trying to rejoin
             console.log(`rejoin ${data.name} to ${color}`);
+            ws.send_packet({ idx: color == "w" ? 0 : 1 }, HEADERS.joinrequest);
             game.add_client(ws, data, color == "w");
             ws.send_packet(game.pgn, HEADERS.loadpgn); // pass them the pgn
             send_info(true); // and send them their opponents info
