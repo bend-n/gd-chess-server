@@ -6,6 +6,7 @@ export class Game {
   constructor(data, ws, wss) {
     this.wss = wss;
     this.gamecode = data.gamecode;
+    ws.gamecode = this.gamecode;
     this.clients = new Clients(ws, data.id, data.name, data.country, data.team);
     this.spectators = [];
     this.game = new Chess();
@@ -53,6 +54,7 @@ export class Game {
 
   add_client(ws, data, is_white = this.clients.w.empty) {
     this.clients.add(ws, data.name, data.id, data.country, is_white);
+    ws.gamecode = this.gamecode;
     return is_white ? 0 : 1;
   }
 
@@ -94,13 +96,12 @@ export class Game {
     let us = this.color_of(ws);
     if (us !== undefined) {
       let sendto = this.get_ws(flip_color(us));
-      delete data.gamecode; // dont send the gamecode to the other player: waste of bytes
       if (sendto) {
         sendto.send_packet(data, header);
         send_group_packet(data, header, this.spectators); // give it to the specs
         return true;
       }
-    } else console.log(`could not find client in game ${data.gamecode}`);
+    } else console.log(`could not find client in game ${this.gamecode}`);
     return false;
   }
 

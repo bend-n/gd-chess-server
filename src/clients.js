@@ -1,3 +1,5 @@
+import { pick } from "./utils.js";
+
 function create_data(ws, id, name, country) {
   return {
     name: name,
@@ -15,13 +17,9 @@ function create_empty_data() {
 
 export class Clients {
   constructor(ws, id, name, country, is_white) {
-    if (is_white) {
-      this.w = create_data(ws, id, name, country);
-      this.b = create_empty_data();
-    } else {
-      this.b = create_data(ws, id, name, country);
-      this.w = create_empty_data();
-    }
+    this.add(ws, name, id, country, is_white);
+    if (is_white) this.b = create_empty_data();
+    else this.w = create_empty_data();
   }
 
   get_ws(color) {
@@ -29,9 +27,7 @@ export class Clients {
   }
 
   get_info(color) {
-    return color === "w"
-      ? { name: this.w.name, country: this.w.country }
-      : { name: this.b.name, country: this.b.country };
+    return pick(color === "w" ? this.w : this.b, "name", "country");
   }
 
   get client_list() {
@@ -71,18 +67,18 @@ export class Clients {
       // if you check name, country AND id, even if there are duplicate ids (impossible) it wont have problems
       function check(on) {
         // if on doesnt have a name property, this will not error, because js
-        return on.name == nameorws && on.country == country && on.id == id;
+        return on.name === nameorws && on.country === country && on.id === id;
       }
       if (check(this.w)) return "w";
       else if (check(this.b)) return "b";
-    } else if (typeof nameorws == "object") {
-      if (this.w.ws == nameorws) return "w";
-      if (this.b.ws == nameorws) return "b";
+    } else if (typeof nameorws === "object") {
+      if (this.w.ws === nameorws) return "w";
+      if (this.b.ws === nameorws) return "b";
     }
   }
 
   erase(client) {
-    if (this.w.ws == client) this.w.ws = undefined;
-    else if (this.b.ws == client) this.b.ws = undefined;
+    if (this.w.ws === client) this.w.ws = undefined;
+    else if (this.b.ws === client) this.b.ws = undefined;
   }
 }

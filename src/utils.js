@@ -11,3 +11,8 @@ export function send_group_packet(data, header, clients) {
     if (client) client.send_packet(data, header);
   });
 }
+
+export function pick(o, ...props) {
+  if (o === undefined) return undefined;
+  return Object.assign({}, ...props.map((prop) => ({ [prop]: o[prop] })));
+}

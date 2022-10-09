@@ -234,31 +234,27 @@ function handle_hostrequest(data, ws) {
 }
 
 function handle_move(data, ws) {
-  const gc = data.gamecode;
   if (
-    games.hasOwnProperty(data.gamecode) &&
-    games[gc].validate_move(data.move) &&
+    games.hasOwnProperty(ws.gamecode) &&
+    games[ws.gamecode].validate_move(data.move) &&
     signal_other(data, ws, HEADERS.move)
-  )
-    console.log("made move", data.move, "on", gc);
-  games[gc].move(data.move);
+  ) {
+    games[ws.gamecode].move(data.move);
+    console.log(`made move ${data.move} on ${ws.gamecode}`);
+  }
 }
 
 function handle_undo(data, ws) {
-  const gc = data.gamecode;
-  const sent = signal_other(data, ws, HEADERS.undo);
-  if (sent && data.accepted === true) {
-    games[gc].undo();
-    if (data.two === true) games[gc].undo();
+  if (signal_other(data, ws, HEADERS.undo) && data.accepted === true) {
+    games[ws.gamecode].undo();
+    if (data.two === true) games[ws.gamecode].undo(); // do it again
   }
 }
 
 function handle_rematch(data, ws) {
-  const gc = data.gamecode;
-  if (games.hasOwnProperty(gc)) {
-    signal_other(data, ws, HEADERS.rematch);
+  if (signal_other(data, ws, HEADERS.rematch)) {
     // check if its a request, and if the request is accepted
-    if (data.accepted === true) games[gc].reset_game(); // reset if it is
+    if (data.accepted === true) games[ws.gamecode].reset_game(); // reset if it is
   }
 }
 
@@ -278,16 +274,16 @@ function handle_spectate(data, ws) {
 
 // relays to both clients
 function dual_relay(data, ws, header = HEADERS.relay) {
-  if (games.hasOwnProperty(data.gamecode)) {
-    games[data.gamecode].send_group_packet(data, header);
+  if (games.hasOwnProperty(ws.gamecode)) {
+    games[ws.gamecode].send_group_packet(data, header);
     return true;
-  } else console.log(`dual relay: game ${data.gamecode} does not exist`);
+  } else console.log(`dual relay: game ${ws.gamecode} does not exist`);
   return false;
 }
 
 // relays to the other client
 function signal_other(data, ws, header = HEADERS.signal) {
-  if (games.hasOwnProperty(data.gamecode))
-    return games[data.gamecode].send_signal_packet(data, ws, header);
+  if (games.hasOwnProperty(ws.gamecode))
+    return games[ws.gamecode].send_signal_packet(data, ws, header);
   return false;
 }
