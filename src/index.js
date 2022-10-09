@@ -74,11 +74,7 @@ wss.on("close", function close() {
 
 console.log(`Server started on port ${PORT}`);
 wss.on("connection", (ws, req) => {
-  console.log(
-    `client connected (${
-      req.headers["x-forwarded-for"] || req.socket.remoteAddress
-    })`
-  );
+  console.log(`client connected (${req.headers["x-forwarded-for"] || req.socket.remoteAddress})`);
   ws.is_alive = true;
   ws.heartbeat = function heartbeat() {
     this.is_alive = true;
@@ -126,7 +122,7 @@ wss.on("connection", (ws, req) => {
           handle_rematch(data, ws);
           break;
         default:
-          console.log(`header ${header} unknown`);
+          console.warn(`header '${header}' unknown`);
           break;
       }
     }
@@ -156,7 +152,7 @@ async function signup(data, ws) {
   async function init_user() {
     const c = `INSERT INTO users (name, country, password) VALUES ('${data.name}', '${data.country}',  '${data.password}') RETURNING id;`;
     const res = await command(c);
-    console.log(`created user sucessully! (${c})`);
+    console.log(`created user '${data.name}', '${data.country}' sucessully!`);
     return res.rows[0].id; // return the uuid
   }
   let id;
@@ -165,7 +161,7 @@ async function signup(data, ws) {
   } catch (e) {
     const packet = { err: "FAILED", stack: e.stack };
     ws.send_packet(packet, HEADERS.create_user);
-    console.error(e.stack);
+    console.error("signup failed\n", e.stack);
     return;
   }
   ws.send_packet({ id: id }, HEADERS.create_user);
@@ -177,8 +173,7 @@ function handle_joinrequest(data, ws) {
     const us = game.clients.color_of(ws);
     const them = flip_color(us);
     // in a ideal world, clients dont disconnect and stop existing. we do not live in a ideal world. (sadly) (or they just left the game :/)
-    if (game.alive(them) && !they_know_about_me)
-      game.get_ws(them).send_packet(game.get_info(us), HEADERS.info);
+    if (game.alive(them) && !they_know_about_me) game.get_ws(them).send_packet(game.get_info(us), HEADERS.info);
 
     // send a packet to us
     game.get_ws(us).send_packet(game.get_info(them), HEADERS.info);
@@ -195,20 +190,19 @@ function handle_joinrequest(data, ws) {
           ws.send_packet({ idx: joiner_idx }, HEADERS.joinrequest); // tell them what team they are
           game.send_group_packet(game.pgn, HEADERS.loadpgn); // hoster doesnt send a joinrequest, so tell it to load pgn too
           send_info();
-          console.log(`${data.name} joined ${data.gamecode}`);
+          console.log(`'${data.name}' joined '${data.gamecode}'`);
         } else {
           let color = game.color_of(data.name, data.country, data.id);
           if (color != undefined) {
             // someone is trying to rejoin
-            console.log(`rejoin ${data.name} to ${color}`);
+            console.log(`'${data.name}' rejoined '${data.gamecode}' as ${color}`);
             ws.send_packet({ idx: color == "w" ? 0 : 1 }, HEADERS.joinrequest);
             game.add_client(ws, data, color == "w");
             ws.send_packet(game.pgn, HEADERS.loadpgn); // pass them the pgn
             send_info(true); // and send them their opponents info
           } else {
-            console.log(
-              `rejected join to ${data.gamecode} (by ${data.name}): game full / id(${data.id}) not included in ${game.ids}`
-            );
+            const message = `rejected join to '${data.gamecode}' (by '${data.name}'): game full / id(${data.id}) not included in ${game.ids}`;
+            console.warn(message);
             ws.send_packet({ err: "FULL" }, HEADERS.joinrequest);
           }
         }
@@ -225,7 +219,7 @@ function handle_hostrequest(data, ws) {
         if (data.team == undefined) data.team = true;
         games[data.gamecode] = new Game(data, ws, wss);
         ws.send_packet({ idx: Number(!data.team) }, HEADERS.hostrequest);
-        console.log(`game ${data.gamecode} created`);
+        console.log(`'${data.name}' hosted '${data.gamecode}'`);
       } else if (games[data.gamecode].players < 2)
         ws.send_packet({ err: "ALREADY_EXISTS_EMPTY" }, HEADERS.hostrequest);
       else ws.send_packet({ err: "ALREADY_EXISTS" }, HEADERS.hostrequest);
@@ -234,13 +228,11 @@ function handle_hostrequest(data, ws) {
 }
 
 function handle_move(data, ws) {
-  if (
-    games.hasOwnProperty(ws.gamecode) &&
-    games[ws.gamecode].validate_move(data.move) &&
-    signal_other(data, ws, HEADERS.move)
-  ) {
-    games[ws.gamecode].move(data.move);
-    console.log(`made move ${data.move} on ${ws.gamecode}`);
+  const gc = ws.gamecode;
+  if (games.hasOwnProperty(gc) && games[gc].validate_move(data.move) && signal_other(data, ws, HEADERS.move)) {
+    games[gc].move(data.move);
+    const player = games[gc].get_info(games[gc].game.turn).name;
+    console.log(`'${player}' made move '${data.move}' on '${gc}'`);
   }
 }
 
@@ -277,13 +269,12 @@ function dual_relay(data, ws, header = HEADERS.relay) {
   if (games.hasOwnProperty(ws.gamecode)) {
     games[ws.gamecode].send_group_packet(data, header);
     return true;
-  } else console.log(`dual relay: game ${ws.gamecode} does not exist`);
+  } else console.warn(`game '${ws.gamecode}' does not exist`);
   return false;
 }
 
 // relays to the other client
 function signal_other(data, ws, header = HEADERS.signal) {
-  if (games.hasOwnProperty(ws.gamecode))
-    return games[ws.gamecode].send_signal_packet(data, ws, header);
+  if (games.hasOwnProperty(ws.gamecode)) return games[ws.gamecode].send_signal_packet(data, ws, header);
   return false;
 }

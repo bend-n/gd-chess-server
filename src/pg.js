@@ -6,8 +6,8 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-pool.on("error", (err, client) => {
-  console.error("Error:", err);
+pool.on("error", (err) => {
+  console.error("database: err:", err);
 });
 
 export async function command(command) {
@@ -17,7 +17,7 @@ export async function command(command) {
     const res = await client.query(command);
     return res;
   } catch (err) {
-    console.error(err.stack);
+    console.error("database: err:", err.stack);
   } finally {
     client.release();
   }

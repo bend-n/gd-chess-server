@@ -101,7 +101,7 @@ export class Game {
         send_group_packet(data, header, this.spectators); // give it to the specs
         return true;
       }
-    } else console.log(`could not find client in game ${this.gamecode}`);
+    } else console.warn(`could not find client in game '${this.gamecode}'`);
     return false;
   }
 
