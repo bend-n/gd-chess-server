@@ -60,13 +60,14 @@ export class Game {
 
   clean_clients(set_is_alive = true) {
     function remove_client(c, wss, removal_func) {
-      if (c) {
-        if (c.is_alive === false) {
-          removal_func(c);
-          c.terminate();
-          wss.clients.delete(c);
-        } else if (set_is_alive) c.is_alive = false; // becomes true on next ping
+      if (!c) return;
+      if (c.is_alive === true && set_is_alive) {
+        c.is_alive = false;
+        return;
       }
+      removal_func(c);
+      c.terminate();
+      wss.clients.delete(c);
     }
 
     this.spectators.forEach((spec) => {
@@ -94,15 +95,12 @@ export class Game {
 
   send_signal_packet(data, ws, header) {
     let us = this.color_of(ws);
-    if (us !== undefined) {
-      let sendto = this.get_ws(flip_color(us));
-      if (sendto) {
-        sendto.send_packet(data, header);
-        send_group_packet(data, header, this.spectators); // give it to the specs
-        return true;
-      }
-    } else console.warn(`could not find client in game '${this.gamecode}'`);
-    return false;
+    if (us === undefined) return false;
+    let sendto = this.get_ws(flip_color(us));
+    if (!sendto) return false;
+    sendto.send_packet(data, header);
+    send_group_packet(data, header, this.spectators); // give it to the specs
+    return true;
   }
 
   reset_game() {
