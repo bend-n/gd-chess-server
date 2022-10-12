@@ -253,11 +253,10 @@ function handle_spectate(data, ws) {
   const game = games[data.gamecode];
   game.add_spectator(ws);
   const packet = {
-    white: game.infos.get(0),
-    black: game.infos.get(1),
+    white: game.get_info("w"),
+    black: game.get_info("b"),
     pgn: game.pgn,
-  }; // spectator starter kit
-  // provides white info, black info, and pgn
+  }; // spectator starter kit: provides white info, black info, and pgn
   ws.send_packet(packet, HEADERS.spectate);
 }
 
