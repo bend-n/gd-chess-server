@@ -14,7 +14,7 @@ pool.on("error", (err) => {
  * Runs a SQL command on the database
  *
  * @param {String} command The command to run
- * @returns {(undefined|Object)} result
+ * @returns {Promise<(undefined|Object)>} result
  */
 export async function command(command) {
   let client;
@@ -25,6 +25,6 @@ export async function command(command) {
   } catch (err) {
     console.error("database: err:", err.stack);
   } finally {
-    client.release();
+    if (client) client.release();
   }
 }

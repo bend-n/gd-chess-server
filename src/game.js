@@ -1,8 +1,17 @@
 import { Chess } from "chess.js";
+import { WebSocketServer } from "ws";
 import { Clients } from "./clients.js";
 import { str_obj, send_group_packet, flip_color } from "./utils.js";
 
 export class Game {
+  /**
+   * Creates an instance of `Game`.
+   * @param {Object} data The packet of id name country team, etc
+   * @param {WebSocket} ws The websocket that hosted
+   * @param {WebSocketServer} wss The wss, will be stored for later erasure of clients
+   * @memberof Game
+   * @constructor
+   */
   constructor(data, ws, wss) {
     this.wss = wss;
     this.gamecode = data.gamecode;

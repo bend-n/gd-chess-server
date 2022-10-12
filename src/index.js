@@ -1,6 +1,6 @@
 import { WebSocket, WebSocketServer } from "ws";
 
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT || 3000);
 const wss = new WebSocketServer({ port: PORT }); // init server asap
 
 import utils from "@gd-com/utils";
@@ -91,7 +91,7 @@ wss.on("connection", (ws, req) => {
   ws.on("pong", ws.heartbeat);
   // on message recieved
   ws.on("message", (message) => {
-    let recieve = getVar(Buffer.from(message)).value;
+    let recieve = getVar(Buffer.from(String(message))).value;
     let data = recieve.data;
     let header = recieve.header;
     if (header) {
@@ -169,7 +169,7 @@ async function signin(data, ws) {
  */
 async function signup(data, ws) {
   const res = await get_propertys(data.name);
-  if (fail(res, ws, "ALREADY_EXISTS", HEADERS.create_user)) return; // if existing, fail
+  if (fail(res !== undefined, ws, "ALREADY_EXISTS", HEADERS.create_user)) return; // if existing, fail
 
   /**
    * Creates the user
