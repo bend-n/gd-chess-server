@@ -1,4 +1,4 @@
-import { WebSocketServer } from "ws";
+import { WebSocket, WebSocketServer } from "ws";
 
 const PORT = process.env.PORT || 3000;
 const wss = new WebSocketServer({ port: PORT }); // init server asap
@@ -36,6 +36,11 @@ const auto_clean_clients = setInterval(() => {
   });
 }, 20 * 1000);
 
+/**
+ * Delete game if empty
+ *
+ * @param {(Object|undefined)} game The game
+ */
 function delete_game_if_empty(game) {
   if (game && game.dead) {
     console.log(`dead game: ${game.gamecode} deleted (${game.pgn})`);
@@ -129,31 +134,53 @@ wss.on("connection", (ws, req) => {
   });
 });
 
+/**
+ * Gets the properties of a user, by name
+ *
+ * @param {String} name The name
+ * @return {Promise<(string|undefined)>} The properties
+ */
 async function get_propertys(name) {
   const c = `SELECT * FROM users WHERE name = '${name}';`;
   const result = await command(c);
   return result.rows[0] ? result.rows[0] : undefined;
 }
 
+/**
+ * Signs in a user
+ *
+ * @param {Object} data The packet the client sent
+ * @param {WebSocket} ws The client websocket, to be talked to
+ * @return {Promise<void>}
+ */
 async function signin(data, ws) {
   const c = `SELECT id, country FROM users WHERE name = '${data.name}' AND password = '${data.password}';`;
   const res = await command(c);
-  if (res.rows[0]) ws.send_packet(res.rows[0], HEADERS.signin);
-  else ws.send_packet({ err: "INVALID_DATA" }, HEADERS.signin);
+  if (fail(!res.rows[0], ws, "INVALID_DATA", HEADERS.signin)) return;
+  ws.send_packet(res.rows[0], HEADERS.signin);
 }
 
+/**
+ * Signs up a user
+ *
+ * @param {Object} data The packet the client sent
+ * @param {WebSocket} ws The clients websocket, to be talked to
+ * @return {Promise<void>}
+ */
 async function signup(data, ws) {
   const res = await get_propertys(data.name);
-  if (res) {
-    ws.send_packet({ err: "ALREADY_EXISTS" }, HEADERS.create_user);
-    return; // if existing, send err
-  }
+  if (fail(res, ws, "ALREADY_EXISTS", HEADERS.create_user)) return; // if existing, fail
 
+  /**
+   * Creates the user
+   *
+   * @return {Promise<String>} uuid
+   */
   async function init_user() {
     const c = `INSERT INTO users (name, country, password) VALUES ('${data.name}', '${data.country}',  '${data.password}') RETURNING id;`;
     const res = await command(c);
     console.log(`created user '${data.name}', '${data.country}' sucessully!`);
-    return res.rows[0].id; // return the uuid
+    return res.rows[0].id;
   }
   let id;
   try {
@@ -167,7 +194,13 @@ async function signup(data, ws) {
   ws.send_packet({ id: id }, HEADERS.create_user);
 }
 
-// hoster does *not* call this function with itself. joiner must tell hoster about itself
+/**
+ * Handle a request to join.
+ * > **Note** Hoster does *not* call this function with itself, joiner must tell hoster about joiner
+ *
+ * @param {Object} data The packet the websocket sent
+ * @param {WebSocket} ws The websocket calling this
+ */
 function handle_joinrequest(data, ws) {
   function send_info(they_know_about_me = false) {
     const us = game.clients.color_of(ws);
@@ -209,6 +242,12 @@ function handle_joinrequest(data, ws) {
   }
 }
 
+/**
+ * Handle a hostrequest
+ *
+ * @param {Object} data The packet the websocket sent
+ * @param {WebSocket} ws The websocket
+ */
 function handle_hostrequest(data, ws) {
   if (fail(data.id === undefined, ws, "NO_ID", HEADERS.hostrequest)) return; // fail conds
   if (fail(data.gamecode === undefined, ws, "NO_GAMECODE", HEADERS.hostrequest)) return;
@@ -224,6 +263,13 @@ function handle_hostrequest(data, ws) {
   console.log(`'${data.name}' hosted '${data.gamecode}'`);
 }
 
+/**
+ * Handle a move request:
+ * Make a move, if the move is legal.
+ *
+ * @param {Object} data The packet the websocket sent
+ * @param {WebSocket} ws The websocket
+ */
 function handle_move(data, ws) {
   const gc = ws.gamecode;
   if (!(games.hasOwnProperty(gc) && games[gc].validate_move(data.move) && signal_other(data, ws, HEADERS.move)))
@@ -233,6 +279,12 @@ function handle_move(data, ws) {
   console.log(`'${player}' made move '${data.move}' on '${gc}'`);
 }
 
+/**
+ * Handle a undo request
+ *
+ * @param {Object} data The packet the websocket sent
+ * @param {WebSocket} ws The websocket
+ */
 function handle_undo(data, ws) {
   if (!signal_other(data, ws, HEADERS.undo) && data.accepted !== true) return;
 
@@ -240,6 +292,12 @@ function handle_undo(data, ws) {
   if (data.two === true) games[ws.gamecode].undo(); // do it again
 }
 
+/**
+ * Handle a rematch request
+ *
+ * @param {Object} data The packet the websocket sent
+ * @param {WebSocket} ws The websocket
+ */
 function handle_rematch(data, ws) {
   if (!signal_other(data, ws, HEADERS.rematch)) return;
 
@@ -247,6 +305,12 @@ function handle_rematch(data, ws) {
   if (data.accepted === true) games[ws.gamecode].reset_game(); // reset if it is
 }
 
+/**
+ * Handle a spectate request
+ *
+ * @param {Object} data The packet the websocket sent
+ * @param {WebSocket} ws The websocket
+ */
 function handle_spectate(data, ws) {
   if (fail(!games.hasOwnProperty(data.gamecode), ws, "NOT_EXIST", HEADERS.spectate)) return;
 
@@ -260,7 +324,14 @@ function handle_spectate(data, ws) {
   ws.send_packet(packet, HEADERS.spectate);
 }
 
-// relays to both clients
+/**
+ * Relays to both clients
+ *
+ * @param {Object} data The packet to send
+ * @param {WebSocket} ws The websocket
+ * @param {String} [header=HEADERS.relay] The header to be used
+ * @return {Boolean} success
+ */
 function dual_relay(data, ws, header = HEADERS.relay) {
   if (!games.hasOwnProperty(ws.gamecode)) return false;
 
@@ -268,7 +339,14 @@ function dual_relay(data, ws, header = HEADERS.relay) {
   return true;
 }
 
-// relays to the other client
+/**
+ * Signals to the other client
+ *
+ * @param {Object} data The packet to send
+ * @param {WebSocket} ws The websocket
+ * @param {String} [header=HEADERS.signal] The header to use
+ * @return {Boolean} success
+ */
 function signal_other(data, ws, header = HEADERS.signal) {
   if (!games.hasOwnProperty(ws.gamecode)) return false;
   return games[ws.gamecode].send_signal_packet(data, ws, header);
