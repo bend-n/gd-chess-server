@@ -6,7 +6,10 @@ const options = {
   method: "GET",
 };
 
-export const self_ping = function ping() {
+/**
+ * Pings self
+ */
+export function self_ping() {
   const ping = request(options);
   ping.end();
-};
+}
