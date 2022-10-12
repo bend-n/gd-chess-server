@@ -10,6 +10,12 @@ pool.on("error", (err) => {
   console.error("database: err:", err);
 });
 
+/**
+ * Runs a SQL command on the database
+ *
+ * @param {String} command The command to run
+ * @returns {(undefined|Object)} result
+ */
 export async function command(command) {
   let client;
   try {
