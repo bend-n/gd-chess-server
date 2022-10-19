@@ -13,14 +13,14 @@ pool.on("error", (err) => {
 /**
  * Runs a SQL command on the database
  *
- * @param {String} command The command to run
+ * @param {String|Object} query The query to run
  * @returns {Promise<(undefined|Object)>} result
  */
-export async function command(command) {
+export async function command(query) {
   let client;
   try {
     client = await pool.connect();
-    const res = await client.query(command);
+    const res = await client.query(query);
     return res;
   } catch (err) {
     console.error("database: err:", err.stack);

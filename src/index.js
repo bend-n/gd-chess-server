@@ -141,7 +141,11 @@ wss.on("connection", (ws, req) => {
  * @return {Promise<(string|undefined)>} The properties
  */
 async function get_propertys(name) {
-  const c = `SELECT * FROM users WHERE name = '${name}';`;
+  const c = {
+    name: "fetch-user",
+    text: "SELECT * FROM users WHERE name = $1",
+    values: [name],
+  };
   const result = await command(c);
   return result.rows[0] ? result.rows[0] : undefined;
 }
@@ -154,7 +158,11 @@ async function get_propertys(name) {
  * @return {Promise<void>}
  */
 async function signin(data, ws) {
-  const c = `SELECT id, country FROM users WHERE name = '${data.name}' AND password = '${data.password}';`;
+  const c = {
+    name: "sign-in",
+    text: "SELECT id, country FROM users WHERE name = $1 AND password = $2",
+    values: [data.name, data.password],
+  };
   const res = await command(c);
   if (fail(!res.rows[0], ws, "INVALID_DATA", HEADERS.signin)) return;
   ws.send_packet(res.rows[0], HEADERS.signin);
@@ -177,7 +185,11 @@ async function signup(data, ws) {
    * @return {Promise<String>} uuid
    */
   async function init_user() {
-    const c = `INSERT INTO users (name, country, password) VALUES ('${data.name}', '${data.country}',  '${data.password}') RETURNING id;`;
+    const c = {
+      name: "sign-up",
+      text: "INSERT INTO users (name, country, password) VALUES ($1, $2, $3) RETURNING id",
+      values: [data.name, data.country, data.password],
+    };
     const res = await command(c);
     console.log(`created user '${data.name}', '${data.country}' sucessully!`);
     return res.rows[0].id;
