@@ -11,7 +11,7 @@
   "author": "bendn",
   "license": "MIT",
   "dependencies": {
-    "@gd-com/utils": "^4.1.5",
+    "@gd-com/utils": "^5.0.0",
     "chess.js": "^0.13.3",
     "pg": "^8.7.3",
     "ws": "^8.8.1"
